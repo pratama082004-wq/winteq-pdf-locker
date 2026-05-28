@@ -1,65 +1,221 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect } from 'react';
+import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
+import jsPDF from 'jspdf';
+import JSZip from 'jszip'; // Library baru untuk ZIP
+
+export default function WatermarkApp() {
+  const [files, setFiles] = useState<File[]>([]); // Sekarang berupa Array
+  const [watermark, setWatermark] = useState<File | null>(null);
+  const [downloadMode, setDownloadMode] = useState<'separate' | 'zip'>('separate');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [status, setStatus] = useState('');
+
+  // Setup Worker untuk pdf.js
+  useEffect(() => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  }, []);
+
+  const handleProcess = async () => {
+    if (files.length === 0 || !watermark) {
+      alert('Harap masukkan minimal 1 gambar teknik dan 1 file watermark!');
+      return;
+    }
+
+    setIsProcessing(true);
+    const zip = new JSZip();
+
+    try {
+      // Load watermark sekali saja untuk semua file
+      const waterPdfBytes = await watermark.arrayBuffer();
+      const waterDoc = await PDFDocument.load(waterPdfBytes);
+
+      for (let f = 0; f < files.length; f++) {
+        const currentFile = files[f];
+        setStatus(`Memproses file ${f + 1} dari ${files.length}: ${currentFile.name}...`);
+
+        // === LOGIKA 1: Tempel Watermark ===
+        const mainPdfBytes = await currentFile.arrayBuffer();
+        const mainDoc = await PDFDocument.load(mainPdfBytes);
+        const [watermarkPage] = await mainDoc.embedPdf(waterDoc, [0]);
+
+        const pages = mainDoc.getPages();
+        for (const page of pages) {
+          page.drawPage(watermarkPage, {
+            x: 0,
+            y: 0,
+            width: page.getWidth(),
+            height: page.getHeight(),
+          });
+        }
+
+        const mergedPdfBytes = await mainDoc.save();
+
+        // === LOGIKA 2: Rasterize (Kunci Layer) ===
+        const loadingTask = pdfjsLib.getDocument({ data: mergedPdfBytes });
+        const pdf = await loadingTask.promise;
+        const numPages = pdf.numPages;
+
+        let pdfOut: jsPDF | null = null;
+
+        for (let i = 1; i <= numPages; i++) {
+          setStatus(`[File ${f + 1}/${files.length}] Mengunci halaman ${i}...`);
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 3.0 });
+
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (!context) continue;
+
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          // @ts-ignore
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          const imgData = canvas.toDataURL('image/jpeg', 0.8);
+
+          const pdfWidth = viewport.width / 3.0;
+          const pdfHeight = viewport.height / 3.0;
+          const orientation = pdfWidth > pdfHeight ? 'l' : 'p';
+
+          if (i === 1) {
+            pdfOut = new jsPDF({ orientation, unit: 'pt', format: [pdfWidth, pdfHeight] });
+          } else {
+            pdfOut?.addPage([pdfWidth, pdfHeight], orientation);
+          }
+          pdfOut?.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        }
+
+        // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
+        if (pdfOut) {
+          if (downloadMode === 'separate') {
+            pdfOut.save(`LOCKED_${currentFile.name}`);
+          } else {
+            // Ubah PDF menjadi tipe Blob untuk dimasukkan ke ZIP
+            const pdfBlob = pdfOut.output('blob');
+            zip.file(`LOCKED_${currentFile.name}`, pdfBlob);
+          }
+        }
+      }
+
+      // === LOGIKA 4: Unduh ZIP (Jika Mode ZIP Dipilih) ===
+      if (downloadMode === 'zip') {
+        setStatus('Mengompres semua file ke dalam ZIP...');
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        
+        // Trik untuk mengunduh file blob di browser
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'LOCKED_GAMBAR_TEKNIK.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      setStatus('Selesai! Semua PDF berhasil diproses.');
+    } catch (error) {
+      console.error(error);
+      setStatus('Terjadi kesalahan. Cek console (F12) untuk detailnya.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+      <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+        <h1 className="text-3xl font-bold text-gray-800 text-center mb-2">
+          Secure PDF Watermark
+        </h1>
+        <p className="text-gray-500 text-center mb-8 text-sm">
+          Bulk proses gambar teknik. 100% Anti-Convert.
+        </p>
+
+        {/* Input Gambar Teknik (Bisa Multiple) */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            1. Upload PDF Gambar Teknik (Bisa lebih dari 1 file)
+          </label>
+          <input
+            type="file"
+            accept=".pdf"
+            multiple // Tambahan agar bisa pilih banyak file
+            onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition"
+          />
+          {files.length > 0 && (
+            <p className="mt-2 text-xs text-blue-600 font-medium">
+              {files.length} file terpilih.
+            </p>
+          )}
+        </div>
+
+        {/* Input Watermark */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            2. Upload PDF Watermark (1 file saja)
+          </label>
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={(e) => setWatermark(e.target.files?.[0] || null)}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 transition"
+          />
+        </div>
+
+        {/* Opsi Download */}
+        <div className="mb-8">
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            3. Opsi Unduhan Hasil
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input
+                type="radio"
+                name="downloadMode"
+                value="separate"
+                checked={downloadMode === 'separate'}
+                onChange={() => setDownloadMode('separate')}
+                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+              />
+              Unduh Terpisah (Banyak File)
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input
+                type="radio"
+                name="downloadMode"
+                value="zip"
+                checked={downloadMode === 'zip'}
+                onChange={() => setDownloadMode('zip')}
+                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+              />
+              Jadikan 1 File ZIP
+            </label>
+          </div>
+        </div>
+
+        {/* Action Button */}
+        <button
+          onClick={handleProcess}
+          disabled={isProcessing}
+          className={`w-full py-3 px-4 rounded-xl text-white font-bold text-lg transition-all ${
+            isProcessing 
+              ? 'bg-gray-400 cursor-not-allowed' 
+              : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-lg hover:scale-[1.02]'
+          }`}
+        >
+          {isProcessing ? 'Memproses...' : 'Kunci & Download File'}
+        </button>
+
+        {/* Status Message */}
+        {status && (
+          <p className="mt-6 text-center text-sm font-medium text-gray-600 bg-gray-100 py-2 rounded-lg">
+            {status}
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        )}
+      </div>
     </div>
   );
 }
