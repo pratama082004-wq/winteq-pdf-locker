@@ -29,7 +29,7 @@ export default function WatermarkApp() {
   // Setup Worker secara Dinamis (Menghindari Server-Side Rendering Vercel)
   useEffect(() => {
     import('pdfjs-dist').then((pdfjsLib) => {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
     });
   }, []);
 

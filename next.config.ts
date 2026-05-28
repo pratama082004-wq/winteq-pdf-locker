@@ -1,13 +1,13 @@
-// Hapus import NextConfig di baris 1
-// Hapus titik dua NextConfig di variabelnya
-
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
+  webpack: (config: any) => {
+    config.resolve.alias.canvas = false;
+    return config;
+  },
+  // Tambahan agar Turbopack di Next.js 16 tidak ngambek
+  turbopack: {},
 };
 
 export default nextConfig;
