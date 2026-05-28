@@ -1,5 +1,18 @@
 'use client';
 
+// === TAMBALAN (POLYFILL) KHUSUS BROWSER JADUL KANTOR ===
+if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === 'undefined') {
+  (Promise as any).withResolvers = function () {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+// =======================================================
+
 import { useState, useEffect } from 'react';
 import { PDFDocument } from 'pdf-lib';
 // PERHATIKAN: import pdfjs-dist di bagian atas sudah DIHAPUS.
@@ -95,10 +108,10 @@ export default function WatermarkApp() {
         // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
         if (pdfOut) {
           if (downloadMode === 'separate') {
-            pdfOut.save(`LOCKED_${currentFile.name}`);
+            pdfOut.save(`locked_${currentFile.name}`);
           } else {
             const pdfBlob = pdfOut.output('blob');
-            zip.file(`LOCKED_${currentFile.name}`, pdfBlob);
+            zip.file(`locked_${currentFile.name}`, pdfBlob);
           }
         }
       }
@@ -111,7 +124,7 @@ export default function WatermarkApp() {
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'LOCKED_GAMBAR_TEKNIK.zip';
+        a.download = 'locked_gambar_teknik.zip';
         a.click();
         URL.revokeObjectURL(url);
       }
