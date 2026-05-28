@@ -2,20 +2,22 @@
 
 import { useState, useEffect } from 'react';
 import { PDFDocument } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
+// PERHATIKAN: import pdfjs-dist di bagian atas sudah DIHAPUS.
 import jsPDF from 'jspdf';
-import JSZip from 'jszip'; // Library baru untuk ZIP
+import JSZip from 'jszip';
 
 export default function WatermarkApp() {
-  const [files, setFiles] = useState<File[]>([]); // Sekarang berupa Array
+  const [files, setFiles] = useState<File[]>([]);
   const [watermark, setWatermark] = useState<File | null>(null);
   const [downloadMode, setDownloadMode] = useState<'separate' | 'zip'>('separate');
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState('');
 
-  // Setup Worker untuk pdf.js
+  // Setup Worker secara Dinamis (Menghindari Server-Side Rendering Vercel)
   useEffect(() => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    import('pdfjs-dist').then((pdfjsLib) => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    });
   }, []);
 
   const handleProcess = async () => {
@@ -28,7 +30,9 @@ export default function WatermarkApp() {
     const zip = new JSZip();
 
     try {
-      // Load watermark sekali saja untuk semua file
+      // Panggil library pdfjs secara dinamis HANYA saat tombol diklik
+      const pdfjsLib = await import('pdfjs-dist');
+
       const waterPdfBytes = await watermark.arrayBuffer();
       const waterDoc = await PDFDocument.load(waterPdfBytes);
 
@@ -93,7 +97,6 @@ export default function WatermarkApp() {
           if (downloadMode === 'separate') {
             pdfOut.save(`LOCKED_${currentFile.name}`);
           } else {
-            // Ubah PDF menjadi tipe Blob untuk dimasukkan ke ZIP
             const pdfBlob = pdfOut.output('blob');
             zip.file(`LOCKED_${currentFile.name}`, pdfBlob);
           }
@@ -105,7 +108,6 @@ export default function WatermarkApp() {
         setStatus('Mengompres semua file ke dalam ZIP...');
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         
-        // Trik untuk mengunduh file blob di browser
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -141,7 +143,7 @@ export default function WatermarkApp() {
           <input
             type="file"
             accept=".pdf"
-            multiple // Tambahan agar bisa pilih banyak file
+            multiple
             onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition"
           />
@@ -180,7 +182,7 @@ export default function WatermarkApp() {
                 onChange={() => setDownloadMode('separate')}
                 className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
               />
-              Unduh Terpisah (Banyak File)
+              Unduh Terpisah
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
               <input
