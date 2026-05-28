@@ -20,6 +20,8 @@ const nextConfig = {
     
     return config;
   },
+  // 3. INI DIA YANG KETINGGALAN! Penangkal Turbopack Vercel wkwkwk
+  turbopack: {},
 };
 
 export default nextConfig;
