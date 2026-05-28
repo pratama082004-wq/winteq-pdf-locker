@@ -205,7 +205,7 @@ export default function WatermarkApp() {
           className={`w-full py-3 px-4 rounded-xl text-white font-bold text-lg transition-all ${
             isProcessing 
               ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-lg hover:scale-[1.02]'
+              : 'bg-blue-600 bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-lg hover:scale-[1.02]'
           }`}
         >
           {isProcessing ? 'Memproses...' : 'Kunci & Download File'}
