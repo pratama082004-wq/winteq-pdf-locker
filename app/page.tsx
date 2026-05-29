@@ -1,6 +1,5 @@
 'use client';
 
-// === TAMBALAN (POLYFILL) KHUSUS BROWSER JADUL KANTOR ===
 if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === 'undefined') {
   (Promise as any).withResolvers = function () {
     let resolve, reject;
@@ -11,9 +10,8 @@ if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === '
     return { promise, resolve, reject };
   };
 }
-// =======================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import jsPDF from 'jspdf';
 import JSZip from 'jszip';
@@ -24,6 +22,8 @@ export default function WatermarkApp() {
   const [downloadMode, setDownloadMode] = useState<'separate' | 'zip'>('separate');
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     import('pdfjs-dist').then((pdfjsLib) => {
@@ -31,29 +31,33 @@ export default function WatermarkApp() {
     });
   }, []);
 
-  // ============================================================
-  // HELPER: Normalisasi rotasi halaman PDF.
-  //
-  // PDF /Rotate 90 artinya: viewer memutar konten 90° CCW sebelum tampil.
-  // Untuk "membatalkan" rotasi itu di content stream, kita harus
-  // memutar konten 90° CW (= -90°) supaya hasilnya lurus kembali.
-  //
-  // Rumus matrix PDF untuk rotasi θ° CW di sekitar origin, lalu
-  // translate supaya konten tidak keluar canvas:
-  //
-  //   /Rotate 90  → konten diputar 90° CCW oleh viewer
-  //                 → kita counter dengan 90° CW:
-  //                 → matrix: [cos(-90), sin(-90), -sin(-90), cos(-90), tx, ty]
-  //                 → = [0, -1, 1, 0, 0, rawW]
-  //                 → translate tx=0, ty=rawW (geser ke atas)
-  //
-  //   /Rotate 270 → konten diputar 270° CCW (= 90° CW) oleh viewer
-  //                 → kita counter dengan 90° CCW:
-  //                 → matrix: [0, 1, -1, 0, rawH, 0]
-  //                 → translate tx=rawH, ty=0 (geser ke kanan)
-  //
-  //   /Rotate 180 → matrix: [-1, 0, 0, -1, rawW, rawH]
-  // ============================================================
+  const handleAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFiles = e.target.files ? Array.from(e.target.files) : [];
+    if (newFiles.length === 0) return;
+    // Tambahkan ke list yang sudah ada, hindari duplikat by name+size
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      const toAdd = newFiles.filter(f => !existing.has(f.name + f.size));
+      return [...prev, ...toAdd];
+    });
+    // Reset input supaya bisa upload file yang sama lagi kalau perlu
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAllFiles = () => {
+    setFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeWatermark = () => {
+    setWatermark(null);
+    if (watermarkInputRef.current) watermarkInputRef.current.value = '';
+  };
+
   const normalizePage = async (page: any, mainDoc: any) => {
     const rotationObj = page.node.get(PDFName.of('Rotate'));
     const rotDeg = rotationObj ? Number(rotationObj.toString()) : 0;
@@ -64,10 +68,8 @@ export default function WatermarkApp() {
 
     let transformStr: string;
     if (rotDeg === 90) {
-      // Counter 90° CCW dengan 90° CW: [0, -1, 1, 0, 0, rawW]
       transformStr = `q 0 -1 1 0 0 ${rawW} cm\n`;
     } else if (rotDeg === 270) {
-      // Counter 270° CCW (= 90° CW) dengan 90° CCW: [0, 1, -1, 0, rawH, 0]
       transformStr = `q 0 1 -1 0 ${rawH} 0 cm\n`;
     } else if (rotDeg === 180) {
       transformStr = `q -1 0 0 -1 ${rawW} ${rawH} cm\n`;
@@ -78,16 +80,10 @@ export default function WatermarkApp() {
 
     const existingContents = page.node.get(PDFName.of('Contents'));
     if (existingContents) {
-      const startRef = mainDoc.context.register(
-        mainDoc.context.flateStream(transformStr)
-      );
-      const endRef = mainDoc.context.register(
-        mainDoc.context.flateStream(restoreStr)
-      );
-
+      const startRef = mainDoc.context.register(mainDoc.context.flateStream(transformStr));
+      const endRef = mainDoc.context.register(mainDoc.context.flateStream(restoreStr));
       const newContents = mainDoc.context.obj([]);
       newContents.push(startRef);
-
       const isArray = typeof existingContents.size === 'function';
       if (isArray) {
         for (let ci = 0; ci < existingContents.size(); ci++) {
@@ -100,7 +96,6 @@ export default function WatermarkApp() {
       page.node.set(PDFName.of('Contents'), newContents);
     }
 
-    // Swap MediaBox untuk /Rotate 90 dan 270
     if (rotDeg === 90 || rotDeg === 270) {
       page.node.set(PDFName.of('MediaBox'), mainDoc.context.obj([0, 0, rawH, rawW]));
     }
@@ -119,7 +114,6 @@ export default function WatermarkApp() {
 
     try {
       const pdfjsLib = await import('pdfjs-dist');
-
       const waterPdfBytes = await watermark.arrayBuffer();
       const waterDoc = await PDFDocument.load(waterPdfBytes);
 
@@ -127,21 +121,17 @@ export default function WatermarkApp() {
         const currentFile = files[f];
         setStatus(`Memproses file ${f + 1} dari ${files.length}: ${currentFile.name}...`);
 
-        // === LOGIKA 1: Normalisasi rotasi + Tempel Watermark ===
         const mainPdfBytes = await currentFile.arrayBuffer();
         const mainDoc = await PDFDocument.load(mainPdfBytes);
 
-        // Normalisasi semua halaman DULU sebelum embed watermark
         for (const page of mainDoc.getPages()) {
           await normalizePage(page, mainDoc);
         }
 
-        // Sekarang drawPage pakai dimensi yang sudah benar
         const [watermarkPage] = await mainDoc.embedPdf(waterDoc, [0]);
         for (const page of mainDoc.getPages()) {
           page.drawPage(watermarkPage, {
-            x: 0,
-            y: 0,
+            x: 0, y: 0,
             width: page.getWidth(),
             height: page.getHeight(),
           });
@@ -149,11 +139,9 @@ export default function WatermarkApp() {
 
         const mergedPdfBytes = await mainDoc.save();
 
-        // === LOGIKA 2: Rasterize (Kunci Layer) ===
         const loadingTask = pdfjsLib.getDocument({ data: mergedPdfBytes });
         const pdf = await loadingTask.promise;
         const numPages = pdf.numPages;
-
         let pdfOut: jsPDF | null = null;
 
         for (let i = 1; i <= numPages; i++) {
@@ -164,7 +152,6 @@ export default function WatermarkApp() {
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           if (!context) continue;
-
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
@@ -184,7 +171,6 @@ export default function WatermarkApp() {
           pdfOut?.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
         }
 
-        // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
         if (pdfOut) {
           if (downloadMode === 'separate') {
             pdfOut.save(`locked_${currentFile.name}`);
@@ -195,7 +181,6 @@ export default function WatermarkApp() {
         }
       }
 
-      // === LOGIKA 4: Unduh ZIP ===
       if (downloadMode === 'zip') {
         setStatus('Mengompres semua file ke dalam ZIP...');
         const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -216,6 +201,12 @@ export default function WatermarkApp() {
     }
   };
 
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
@@ -226,36 +217,119 @@ export default function WatermarkApp() {
           Bulk proses gambar teknik. 100% Anti-Convert.
         </p>
 
+        {/* Input Gambar Teknik */}
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            1. Upload PDF Gambar Teknik (Bisa lebih dari 1 file)
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              1. Upload PDF Gambar Teknik
+            </label>
+            {files.length > 0 && (
+              <button
+                onClick={clearAllFiles}
+                className="text-xs text-red-500 hover:text-red-700 font-medium transition"
+              >
+                Hapus Semua
+              </button>
+            )}
+          </div>
+
+          {/* Drop zone / button */}
+          <label className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 cursor-pointer transition">
+            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="text-sm font-semibold text-blue-700">
+              {files.length === 0 ? 'Pilih file PDF' : 'Tambah file PDF lagi'}
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              multiple
+              onChange={handleAddFiles}
+              className="hidden"
+            />
           </label>
-          <input
-            type="file"
-            accept=".pdf"
-            multiple
-            onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition"
-          />
+
+          {/* File list */}
+          {files.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {files.map((file, index) => (
+                <li
+                  key={index}
+                  className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+                    </svg>
+                    <span className="text-sm text-gray-700 truncate">{file.name}</span>
+                    <span className="text-xs text-gray-400 flex-shrink-0">{formatSize(file.size)}</span>
+                  </div>
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-red-500 transition"
+                    title="Hapus file ini"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {files.length > 0 && (
             <p className="mt-2 text-xs text-blue-600 font-medium">
-              {files.length} file terpilih.
+              {files.length} file terpilih
             </p>
           )}
         </div>
 
+        {/* Input Watermark */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             2. Upload PDF Watermark (1 file saja)
           </label>
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(e) => setWatermark(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 transition"
-          />
+
+          {!watermark ? (
+            <label className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl border-2 border-dashed border-purple-200 bg-purple-50 hover:bg-purple-100 cursor-pointer transition">
+              <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span className="text-sm font-semibold text-purple-700">Pilih file watermark</span>
+              <input
+                ref={watermarkInputRef}
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setWatermark(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+          ) : (
+            <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <svg className="w-4 h-4 text-purple-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+                </svg>
+                <span className="text-sm text-purple-700 truncate font-medium">{watermark.name}</span>
+                <span className="text-xs text-purple-400 flex-shrink-0">{formatSize(watermark.size)}</span>
+              </div>
+              <button
+                onClick={removeWatermark}
+                className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-purple-400 hover:text-white hover:bg-red-500 transition"
+                title="Hapus watermark"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Opsi Download */}
         <div className="mb-8">
           <label className="block text-sm font-medium text-gray-700 mb-3">
             3. Opsi Unduhan Hasil
