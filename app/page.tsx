@@ -14,8 +14,7 @@ if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === '
 // =======================================================
 
 import { useState, useEffect } from 'react';
-import { PDFDocument } from 'pdf-lib';
-// PERHATIKAN: import pdfjs-dist di bagian atas sudah DIHAPUS.
+import { PDFDocument, PDFName } from 'pdf-lib'; // <-- tambah PDFName
 import jsPDF from 'jspdf';
 import JSZip from 'jszip';
 
@@ -46,34 +45,52 @@ export default function WatermarkApp() {
       // Panggil library pdfjs secara dinamis HANYA saat tombol diklik
       const pdfjsLib = await import('pdfjs-dist');
 
-      // === LOGIKA 1 BARU: Siapkan Watermark sebagai Stempel Canvas ===
-      setStatus('Menyiapkan stempel watermark...');
       const waterPdfBytes = await watermark.arrayBuffer();
-      const waterTask = pdfjsLib.getDocument({ data: waterPdfBytes });
-      const waterPdf = await waterTask.promise;
-      const waterPage = await waterPdf.getPage(1);
-      const wViewport = waterPage.getViewport({ scale: 3.0 });
-
-      const wCanvas = document.createElement('canvas');
-      const wContext = wCanvas.getContext('2d');
-      if (wContext) {
-        wCanvas.width = wViewport.width;
-        wCanvas.height = wViewport.height;
-        // @ts-ignore
-        await waterPage.render({ canvasContext: wContext, viewport: wViewport }).promise;
-      }
+      const waterDoc = await PDFDocument.load(waterPdfBytes);
 
       for (let f = 0; f < files.length; f++) {
         const currentFile = files[f];
         setStatus(`Memproses file ${f + 1} dari ${files.length}: ${currentFile.name}...`);
 
-        // === LOGIKA 2 BARU: Baca File, Rasterize & Langsung Tempel Stempel ===
+        // === LOGIKA 1: Tempel Watermark ===
         const mainPdfBytes = await currentFile.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: mainPdfBytes });
+        const mainDoc = await PDFDocument.load(mainPdfBytes);
+        const [watermarkPage] = await mainDoc.embedPdf(waterDoc, [0]);
+
+        const pages = mainDoc.getPages();
+        for (const page of pages) {
+          // === FIX ROTASI: Baca metadata /Rotate dari halaman ===
+          // PDF dengan /Rotate 90 atau 270 punya MediaBox portrait
+          // tapi tampil sebagai landscape. pdf-lib tidak otomatis swap,
+          // jadi kita harus hitung dimensi visual yang benar secara manual.
+          const rotationObj = page.node.get(PDFName.of('Rotate'));
+          const rotDeg = rotationObj ? Number(rotationObj.toString()) : 0;
+          const isRotated = rotDeg === 90 || rotDeg === 270;
+
+          const rawW = page.getWidth();   // ukuran MediaBox (belum dirotasi)
+          const rawH = page.getHeight();  // ukuran MediaBox (belum dirotasi)
+
+          // Dimensi visual yang benar (yang dilihat user)
+          const visW = isRotated ? rawH : rawW;
+          const visH = isRotated ? rawW : rawH;
+
+          page.drawPage(watermarkPage, {
+            x: 0,
+            y: 0,
+            width: visW,
+            height: visH,
+          });
+        }
+
+        const mergedPdfBytes = await mainDoc.save();
+
+        // === LOGIKA 2: Rasterize (Kunci Layer) ===
+        // pdfjs.getViewport() sudah otomatis handle rotasi, jadi bagian ini aman.
+        const loadingTask = pdfjsLib.getDocument({ data: mergedPdfBytes });
         const pdf = await loadingTask.promise;
         const numPages = pdf.numPages;
 
-        let pdfOut: jsPDF | any = null;
+        let pdfOut: jsPDF | null = null;
 
         for (let i = 1; i <= numPages; i++) {
           setStatus(`[File ${f + 1}/${files.length}] Mengunci halaman ${i}...`);
@@ -87,53 +104,29 @@ export default function WatermarkApp() {
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
-          // 1. Gambar PDF Teknik Asli
           // @ts-ignore
           await page.render({ canvasContext: context, viewport: viewport }).promise;
+          const imgData = canvas.toDataURL('image/jpeg', 0.8);
 
-          // 2. Tempel Watermark dengan Sensor Orientasi (Anti-Gepeng)
-          context.save();
-          context.globalCompositeOperation = 'multiply';
+          const pdfWidth = viewport.width / 3.0;
+          const pdfHeight = viewport.height / 3.0;
+          const orientation = pdfWidth > pdfHeight ? 'l' : 'p';
 
-          const isTargetLandscape = canvas.width > canvas.height;
-          const isWatermarkLandscape = wCanvas.width > wCanvas.height;
-
-          if (isTargetLandscape !== isWatermarkLandscape) {
-            // Jika orientasi beda (misal: Kertas Tidur vs Watermark Berdiri)
-            // Kita pindahkan titik sumbu ke tengah, lalu putar 90 derajat
-            context.translate(canvas.width / 2, canvas.height / 2);
-            context.rotate(-Math.PI / 2); 
-            // Cap watermark dengan posisi lebar & tinggi yang disilangkan
-            context.drawImage(wCanvas, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
+          if (i === 1) {
+            pdfOut = new jsPDF({ orientation, unit: 'pt', format: [pdfWidth, pdfHeight] });
           } else {
-            // Jika orientasinya sudah sama, langsung cap normal
-            context.drawImage(wCanvas, 0, 0, canvas.width, canvas.height);
+            pdfOut?.addPage([pdfWidth, pdfHeight], orientation);
           }
-
-          context.restore(); // Kembalikan posisi sumbu canvas
+          pdfOut?.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
         }
 
         // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
         if (pdfOut) {
           if (downloadMode === 'separate') {
-            // Bypass pdfOut.save() bawaan jsPDF untuk menghindari silent block browser
-            const pdfBlob = pdfOut.output('blob');
-            const url = URL.createObjectURL(pdfBlob);
-            
-            // Buat elemen link "gaib" untuk memaksa download
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `LOCKED_${currentFile.name}`;
-            document.body.appendChild(a); // Wajib ditambahkan ke body untuk browser strict
-            a.click();                    // Paksa klik
-            
-            // Bersihkan sisa link gaibnya
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            pdfOut.save(`locked_${currentFile.name}`);
           } else {
-            // Mode ZIP tetap aman
             const pdfBlob = pdfOut.output('blob');
-            zip.file(`LOCKED_${currentFile.name}`, pdfBlob);
+            zip.file(`locked_${currentFile.name}`, pdfBlob);
           }
         }
       }
@@ -146,7 +139,7 @@ export default function WatermarkApp() {
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'LOCKED_GAMBAR_TEKNIK.zip';
+        a.download = 'locked_gambar_teknik.zip';
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -159,7 +152,7 @@ export default function WatermarkApp() {
       setIsProcessing(false);
     }
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
