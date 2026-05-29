@@ -148,70 +148,73 @@ function WatermarkTab() {
       const pdfjsLib = await import('pdfjs-dist');
       const waterBytes = await watermark.arrayBuffer();
 
+      // Load watermark SEKALI di luar loop — tidak perlu reload tiap file
+      const waterPdf  = await pdfjsLib.getDocument({ data: waterBytes }).promise;
+      const waterPage = await waterPdf.getPage(1);
+      const wvp       = waterPage.getViewport({ scale: 1 });
+
+      // Canvas watermark di-reuse antar file (dibuat ulang per halaman tapi
+      // ukurannya bisa beda, jadi tetap buat baru — tapi waterPdf tidak di-reload)
+      const SCALE = 2.0; // 2.0 cukup tajam, jauh lebih cepat dari 3.0
+
       for (let f = 0; f < files.length; f++) {
         const cur = files[f];
-        setStatus(`Memproses file ${f+1}/${files.length}: ${cur.name}...`);
+        setStatus(`Memproses ${f+1}/${files.length}: ${cur.name}...`);
 
-        const mainBytes  = await cur.arrayBuffer();
-
-        // ── Render page utama via pdfjs (handle semua rotasi otomatis) ──
-        const mainPdf  = await pdfjsLib.getDocument({ data: mainBytes }).promise;
-        const waterPdf = await pdfjsLib.getDocument({ data: waterBytes }).promise;
-        const waterPage = await waterPdf.getPage(1);
+        // Baca file sebagai ArrayBuffer — gunakan copy baru tiap iterasi
+        const mainBytes = await cur.arrayBuffer();
+        const mainPdf   = await pdfjsLib.getDocument({ data: new Uint8Array(mainBytes) }).promise;
 
         let pdfOut: jsPDF | null = null;
 
         for (let i = 1; i <= mainPdf.numPages; i++) {
-          setStatus(`[File ${f+1}/${files.length}] Halaman ${i}/${mainPdf.numPages}...`);
+          setStatus(`[${f+1}/${files.length}] Hal ${i}/${mainPdf.numPages}: ${cur.name}`);
           const page     = await mainPdf.getPage(i);
-          const SCALE    = 3.0;
           const viewport = page.getViewport({ scale: SCALE });
           const pW = viewport.width;
           const pH = viewport.height;
 
-          // Canvas utama ukuran page
-          const canvas  = document.createElement('canvas');
-          canvas.width  = pW; canvas.height = pH;
-          const ctx     = canvas.getContext('2d')!;
-
-          // LANGKAH 1: Render page utama dulu (layer bawah)
+          // Canvas page — render konten utama
+          const canvas = document.createElement('canvas');
+          canvas.width = pW; canvas.height = pH;
+          const ctx    = canvas.getContext('2d')!;
           // @ts-ignore
           await page.render({ canvasContext: ctx, viewport }).promise;
 
-          // LANGKAH 2: Render watermark ke canvas UKURAN SAMA dengan page
-          // Scale: COVER - watermark di-stretch pas ke seluruh page (x dan y independen)
-          // Ini memastikan watermark selalu mulai dari (0,0) dan memenuhi page penuh
-          // tanpa offset, persis seperti file watermark aslinya.
-          const wvp    = waterPage.getViewport({ scale: 1 });
-          const wScaleX = pW / wvp.width;
-          const wScaleY = pH / wvp.height;
-          // Pakai scale yang lebih besar (cover) supaya watermark memenuhi page
-          const wScale  = Math.max(wScaleX, wScaleY);
+          // Canvas watermark — ukuran sama dengan page, fresh context tiap halaman
+          const wScaleX   = pW / wvp.width;
+          const wScaleY   = pH / wvp.height;
+          const wScale    = Math.max(wScaleX, wScaleY); // cover: memenuhi seluruh page
           const wViewport = waterPage.getViewport({ scale: wScale });
           const wCanvas   = document.createElement('canvas');
-          wCanvas.width   = pW;   // sama persis ukuran page
+          wCanvas.width   = pW;
           wCanvas.height  = pH;
-          const wCtx = wCanvas.getContext('2d')!;
-          wCtx.fillStyle = '#ffffff';
+          const wCtx      = wCanvas.getContext('2d')!;
+          wCtx.fillStyle  = '#ffffff';
           wCtx.fillRect(0, 0, pW, pH);
-          // Gambar watermark dari pojok kiri atas, crop jika perlu
-          const wOffX = (pW - wViewport.width)  / 2;
-          const wOffY = (pH - wViewport.height) / 2;
-          wCtx.translate(wOffX, wOffY);
+          // PENTING: pakai save/restore bukan translate langsung — hindari accumulate transform
+          wCtx.save();
+          wCtx.translate(
+            (pW - wViewport.width)  / 2,
+            (pH - wViewport.height) / 2
+          );
           // @ts-ignore
           await waterPage.render({ canvasContext: wCtx, viewport: wViewport }).promise;
+          wCtx.restore();
 
-          // LANGKAH 3: Overlay watermark di atas page dengan multiply
-          // pixel putih watermark = transparan, pixel gelap = muncul
+          // Overlay watermark dengan multiply blend
           ctx.save();
           ctx.globalCompositeOperation = 'multiply';
           ctx.drawImage(wCanvas, 0, 0);
           ctx.restore();
 
+          // Bebaskan memori canvas watermark segera
+          wCanvas.width = 0; wCanvas.height = 0;
+
           // Masukkan ke jsPDF
-          const imgData    = canvas.toDataURL('image/jpeg', 0.85);
-          const ptW        = pW / SCALE;
-          const ptH        = pH / SCALE;
+          const imgData     = canvas.toDataURL('image/jpeg', 0.82);
+          const ptW         = pW / SCALE;
+          const ptH         = pH / SCALE;
           const orientation = ptW > ptH ? 'l' : 'p';
           if (i === 1) {
             pdfOut = new jsPDF({ orientation, unit: 'pt', format: [ptW, ptH] });
@@ -219,7 +222,13 @@ function WatermarkTab() {
             pdfOut?.addPage([ptW, ptH], orientation);
           }
           pdfOut?.addImage(imgData, 'JPEG', 0, 0, ptW, ptH);
+
+          // Bebaskan memori canvas page segera
+          canvas.width = 0; canvas.height = 0;
         }
+
+        // Cleanup pdfjs document untuk bebaskan memori
+        mainPdf.destroy();
 
         if (pdfOut) {
           if (downloadMode === 'separate') {
@@ -228,6 +237,9 @@ function WatermarkTab() {
             zip.file(`locked_${cur.name}`, pdfOut.output('blob'));
           }
         }
+
+        // Yield ke event loop sebentar supaya UI tidak freeze
+        await new Promise(r => setTimeout(r, 0));
       }
 
       if (downloadMode === 'zip') {
