@@ -116,8 +116,22 @@ export default function WatermarkApp() {
         // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
         if (pdfOut) {
           if (downloadMode === 'separate') {
-            pdfOut.save(`LOCKED_${currentFile.name}`);
+            // Bypass pdfOut.save() bawaan jsPDF untuk menghindari silent block browser
+            const pdfBlob = pdfOut.output('blob');
+            const url = URL.createObjectURL(pdfBlob);
+            
+            // Buat elemen link "gaib" untuk memaksa download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `LOCKED_${currentFile.name}`;
+            document.body.appendChild(a); // Wajib ditambahkan ke body untuk browser strict
+            a.click();                    // Paksa klik
+            
+            // Bersihkan sisa link gaibnya
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
           } else {
+            // Mode ZIP tetap aman
             const pdfBlob = pdfOut.output('blob');
             zip.file(`LOCKED_${currentFile.name}`, pdfBlob);
           }
