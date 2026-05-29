@@ -60,11 +60,14 @@ export default function WatermarkApp() {
 
         const pages = mainDoc.getPages();
         for (const page of pages) {
+          // AMBIL UKURAN ASLI KERTAS (MENGABAIKAN ROTASI METADATA)
+          const { width, height } = page.getSize(); 
+
           page.drawPage(watermarkPage, {
             x: 0,
             y: 0,
-            width: page.getWidth(),
-            height: page.getHeight(),
+            width: width,   // Pakai width asli
+            height: height, // Pakai height asli
           });
         }
 
