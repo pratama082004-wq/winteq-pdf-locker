@@ -73,7 +73,7 @@ export default function WatermarkApp() {
         const pdf = await loadingTask.promise;
         const numPages = pdf.numPages;
 
-        let pdfOut: jsPDF | null = null;
+        let pdfOut: jsPDF | any = null;
 
         for (let i = 1; i <= numPages; i++) {
           setStatus(`[File ${f + 1}/${files.length}] Mengunci halaman ${i}...`);
@@ -91,23 +91,26 @@ export default function WatermarkApp() {
           // @ts-ignore
           await page.render({ canvasContext: context, viewport: viewport }).promise;
 
-          // 2. Tempel Watermark dengan efek 'multiply' (Ajaib: background putih jadi transparan!)
+          // 2. Tempel Watermark dengan Sensor Orientasi (Anti-Gepeng)
+          context.save();
           context.globalCompositeOperation = 'multiply';
-          context.drawImage(wCanvas, 0, 0, canvas.width, canvas.height);
-          context.globalCompositeOperation = 'source-over'; // Kembalikan ke normal
 
-          const imgData = canvas.toDataURL('image/jpeg', 0.8);
+          const isTargetLandscape = canvas.width > canvas.height;
+          const isWatermarkLandscape = wCanvas.width > wCanvas.height;
 
-          const pdfWidth = viewport.width / 3.0;
-          const pdfHeight = viewport.height / 3.0;
-          const orientation = pdfWidth > pdfHeight ? 'l' : 'p';
-
-          if (i === 1) {
-            pdfOut = new jsPDF({ orientation, unit: 'pt', format: [pdfWidth, pdfHeight] });
+          if (isTargetLandscape !== isWatermarkLandscape) {
+            // Jika orientasi beda (misal: Kertas Tidur vs Watermark Berdiri)
+            // Kita pindahkan titik sumbu ke tengah, lalu putar 90 derajat
+            context.translate(canvas.width / 2, canvas.height / 2);
+            context.rotate(-Math.PI / 2); 
+            // Cap watermark dengan posisi lebar & tinggi yang disilangkan
+            context.drawImage(wCanvas, -canvas.height / 2, -canvas.width / 2, canvas.height, canvas.width);
           } else {
-            pdfOut?.addPage([pdfWidth, pdfHeight], orientation);
+            // Jika orientasinya sudah sama, langsung cap normal
+            context.drawImage(wCanvas, 0, 0, canvas.width, canvas.height);
           }
-          pdfOut?.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+          context.restore(); // Kembalikan posisi sumbu canvas
         }
 
         // === LOGIKA 3: Simpan Terpisah atau Masukkan ke ZIP ===
