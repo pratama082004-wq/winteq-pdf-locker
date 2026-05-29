@@ -60,18 +60,38 @@ export default function WatermarkApp() {
 
         const pages = mainDoc.getPages();
         for (const page of pages) {
-          // AMBIL UKURAN ASLI KERTAS (MENGABAIKAN ROTASI METADATA)
-          const { width, height } = page.getSize(); 
+          // Ambil ukuran fisik asli dan sudut rotasi metadata
+          const angle = page.getRotation().angle;
+          const w = page.getWidth();
+          const h = page.getHeight();
 
+          let drawX = 0;
+          let drawY = 0;
+
+          // Menyesuaikan titik kordinat (X, Y) berdasarkan sudut putar
+          if (angle === 90) {
+            drawX = w;
+          } else if (angle === 180) {
+            drawX = w;
+            drawY = h;
+          } else if (angle === 270) {
+            drawY = h;
+          }
+
+          const isRotated = angle === 90 || angle === 270;
+
+          // Tempel watermark dengan ukuran dan rotasi yang dikalibrasi
           page.drawPage(watermarkPage, {
-            x: 0,
-            y: 0,
-            width: width,   // Pakai width asli
-            height: height, // Pakai height asli
+            x: drawX,
+            y: drawY,
+            width: isRotated ? h : w,
+            height: isRotated ? w : h,
+            rotate: page.getRotation(),
           });
         }
 
-        const mergedPdfBytes = await mainDoc.save();
+        // TAMBAHKAN BARIS INI KEMBALI YAA:
+      const mergedPdfBytes = await mainDoc.save();
 
         // === LOGIKA 2: Rasterize (Kunci Layer) ===
         const loadingTask = pdfjsLib.getDocument({ data: mergedPdfBytes });
