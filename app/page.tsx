@@ -14,7 +14,7 @@ if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === '
 // =======================================================
 
 import { useState, useEffect } from 'react';
-import { PDFDocument, PDFName } from 'pdf-lib'; // <-- tambah PDFName
+import { PDFDocument, PDFName } from 'pdf-lib';
 import jsPDF from 'jspdf';
 import JSZip from 'jszip';
 
@@ -25,12 +25,88 @@ export default function WatermarkApp() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState('');
 
-  // Setup Worker secara Dinamis (Menghindari Server-Side Rendering Vercel)
   useEffect(() => {
     import('pdfjs-dist').then((pdfjsLib) => {
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
     });
   }, []);
+
+  // ============================================================
+  // HELPER: Normalisasi rotasi halaman PDF.
+  //
+  // PDF /Rotate 90 artinya: viewer memutar konten 90° CCW sebelum tampil.
+  // Untuk "membatalkan" rotasi itu di content stream, kita harus
+  // memutar konten 90° CW (= -90°) supaya hasilnya lurus kembali.
+  //
+  // Rumus matrix PDF untuk rotasi θ° CW di sekitar origin, lalu
+  // translate supaya konten tidak keluar canvas:
+  //
+  //   /Rotate 90  → konten diputar 90° CCW oleh viewer
+  //                 → kita counter dengan 90° CW:
+  //                 → matrix: [cos(-90), sin(-90), -sin(-90), cos(-90), tx, ty]
+  //                 → = [0, -1, 1, 0, 0, rawW]
+  //                 → translate tx=0, ty=rawW (geser ke atas)
+  //
+  //   /Rotate 270 → konten diputar 270° CCW (= 90° CW) oleh viewer
+  //                 → kita counter dengan 90° CCW:
+  //                 → matrix: [0, 1, -1, 0, rawH, 0]
+  //                 → translate tx=rawH, ty=0 (geser ke kanan)
+  //
+  //   /Rotate 180 → matrix: [-1, 0, 0, -1, rawW, rawH]
+  // ============================================================
+  const normalizePage = async (page: any, mainDoc: any) => {
+    const rotationObj = page.node.get(PDFName.of('Rotate'));
+    const rotDeg = rotationObj ? Number(rotationObj.toString()) : 0;
+    if (rotDeg === 0) return;
+
+    const rawW = page.getWidth();
+    const rawH = page.getHeight();
+
+    let transformStr: string;
+    if (rotDeg === 90) {
+      // Counter 90° CCW dengan 90° CW: [0, -1, 1, 0, 0, rawW]
+      transformStr = `q 0 -1 1 0 0 ${rawW} cm\n`;
+    } else if (rotDeg === 270) {
+      // Counter 270° CCW (= 90° CW) dengan 90° CCW: [0, 1, -1, 0, rawH, 0]
+      transformStr = `q 0 1 -1 0 ${rawH} 0 cm\n`;
+    } else if (rotDeg === 180) {
+      transformStr = `q -1 0 0 -1 ${rawW} ${rawH} cm\n`;
+    } else {
+      return;
+    }
+    const restoreStr = `\nQ`;
+
+    const existingContents = page.node.get(PDFName.of('Contents'));
+    if (existingContents) {
+      const startRef = mainDoc.context.register(
+        mainDoc.context.flateStream(transformStr)
+      );
+      const endRef = mainDoc.context.register(
+        mainDoc.context.flateStream(restoreStr)
+      );
+
+      const newContents = mainDoc.context.obj([]);
+      newContents.push(startRef);
+
+      const isArray = typeof existingContents.size === 'function';
+      if (isArray) {
+        for (let ci = 0; ci < existingContents.size(); ci++) {
+          newContents.push(existingContents.get(ci));
+        }
+      } else {
+        newContents.push(existingContents);
+      }
+      newContents.push(endRef);
+      page.node.set(PDFName.of('Contents'), newContents);
+    }
+
+    // Swap MediaBox untuk /Rotate 90 dan 270
+    if (rotDeg === 90 || rotDeg === 270) {
+      page.node.set(PDFName.of('MediaBox'), mainDoc.context.obj([0, 0, rawH, rawW]));
+    }
+    page.node.delete(PDFName.of('CropBox'));
+    page.node.delete(PDFName.of('Rotate'));
+  };
 
   const handleProcess = async () => {
     if (files.length === 0 || !watermark) {
@@ -42,7 +118,6 @@ export default function WatermarkApp() {
     const zip = new JSZip();
 
     try {
-      // Panggil library pdfjs secara dinamis HANYA saat tombol diklik
       const pdfjsLib = await import('pdfjs-dist');
 
       const waterPdfBytes = await watermark.arrayBuffer();
@@ -52,40 +127,29 @@ export default function WatermarkApp() {
         const currentFile = files[f];
         setStatus(`Memproses file ${f + 1} dari ${files.length}: ${currentFile.name}...`);
 
-        // === LOGIKA 1: Tempel Watermark ===
+        // === LOGIKA 1: Normalisasi rotasi + Tempel Watermark ===
         const mainPdfBytes = await currentFile.arrayBuffer();
         const mainDoc = await PDFDocument.load(mainPdfBytes);
+
+        // Normalisasi semua halaman DULU sebelum embed watermark
+        for (const page of mainDoc.getPages()) {
+          await normalizePage(page, mainDoc);
+        }
+
+        // Sekarang drawPage pakai dimensi yang sudah benar
         const [watermarkPage] = await mainDoc.embedPdf(waterDoc, [0]);
-
-        const pages = mainDoc.getPages();
-        for (const page of pages) {
-          // === FIX ROTASI: Baca metadata /Rotate dari halaman ===
-          // PDF dengan /Rotate 90 atau 270 punya MediaBox portrait
-          // tapi tampil sebagai landscape. pdf-lib tidak otomatis swap,
-          // jadi kita harus hitung dimensi visual yang benar secara manual.
-          const rotationObj = page.node.get(PDFName.of('Rotate'));
-          const rotDeg = rotationObj ? Number(rotationObj.toString()) : 0;
-          const isRotated = rotDeg === 90 || rotDeg === 270;
-
-          const rawW = page.getWidth();   // ukuran MediaBox (belum dirotasi)
-          const rawH = page.getHeight();  // ukuran MediaBox (belum dirotasi)
-
-          // Dimensi visual yang benar (yang dilihat user)
-          const visW = isRotated ? rawH : rawW;
-          const visH = isRotated ? rawW : rawH;
-
+        for (const page of mainDoc.getPages()) {
           page.drawPage(watermarkPage, {
             x: 0,
             y: 0,
-            width: visW,
-            height: visH,
+            width: page.getWidth(),
+            height: page.getHeight(),
           });
         }
 
         const mergedPdfBytes = await mainDoc.save();
 
         // === LOGIKA 2: Rasterize (Kunci Layer) ===
-        // pdfjs.getViewport() sudah otomatis handle rotasi, jadi bagian ini aman.
         const loadingTask = pdfjsLib.getDocument({ data: mergedPdfBytes });
         const pdf = await loadingTask.promise;
         const numPages = pdf.numPages;
@@ -131,11 +195,10 @@ export default function WatermarkApp() {
         }
       }
 
-      // === LOGIKA 4: Unduh ZIP (Jika Mode ZIP Dipilih) ===
+      // === LOGIKA 4: Unduh ZIP ===
       if (downloadMode === 'zip') {
         setStatus('Mengompres semua file ke dalam ZIP...');
         const zipBlob = await zip.generateAsync({ type: 'blob' });
-        
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -163,7 +226,6 @@ export default function WatermarkApp() {
           Bulk proses gambar teknik. 100% Anti-Convert.
         </p>
 
-        {/* Input Gambar Teknik (Bisa Multiple) */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             1. Upload PDF Gambar Teknik (Bisa lebih dari 1 file)
@@ -182,7 +244,6 @@ export default function WatermarkApp() {
           )}
         </div>
 
-        {/* Input Watermark */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             2. Upload PDF Watermark (1 file saja)
@@ -195,7 +256,6 @@ export default function WatermarkApp() {
           />
         </div>
 
-        {/* Opsi Download */}
         <div className="mb-8">
           <label className="block text-sm font-medium text-gray-700 mb-3">
             3. Opsi Unduhan Hasil
@@ -226,20 +286,18 @@ export default function WatermarkApp() {
           </div>
         </div>
 
-        {/* Action Button */}
         <button
           onClick={handleProcess}
           disabled={isProcessing}
           className={`w-full py-3 px-4 rounded-xl text-white font-bold text-lg transition-all ${
-          isProcessing 
-            ? 'bg-gray-400 cursor-not-allowed' 
+          isProcessing
+            ? 'bg-gray-400 cursor-not-allowed'
             : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02]'
         }`}
         >
           {isProcessing ? 'Memproses...' : 'Kunci & Download File'}
         </button>
 
-        {/* Status Message */}
         {status && (
           <p className="mt-6 text-center text-sm font-medium text-gray-600 bg-gray-100 py-2 rounded-lg">
             {status}
