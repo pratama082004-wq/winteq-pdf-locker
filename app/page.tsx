@@ -122,9 +122,12 @@ function DropZone({ onFiles, accept, multi=true, label='Drag & drop atau klik un
   { onFiles:(f:File[])=>void; accept:string; multi?:boolean; label?:string; sub?:string; color?:string }) {
   const [drag, setDrag] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
-  const c = { blue:'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-blue-400',
-              green:'border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-green-400',
-              purple:'border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-purple-400' }[color]!.split(' ');
+  const c = { 
+    blue: 'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-blue-400',
+    green: 'border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-green-400',
+    purple: 'border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-purple-400',
+    red: 'border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-red-400' 
+  }[color]!.split(' ');
   return (
     <label
       onDragOver={e=>{e.preventDefault();setDrag(true)}}
