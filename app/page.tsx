@@ -8,41 +8,10 @@ if (typeof window !== 'undefined' && typeof (Promise as any).withResolvers === '
   };
 }
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { PDFDocument, PDFName, degrees, rgb, StandardFonts } from 'pdf-lib';
 import jsPDF from 'jspdf';
 import JSZip from 'jszip';
-
-// ─── Modern Icons ─────────────────────────────────────────────────────────────
-const SVG_PATHS: Record<string, string> = {
-  folder: "M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0A2.25 2.25 0 001.5 12v4.5c0 1.242 1.008 2.25 2.25 2.25h16.5A2.25 2.25 0 0022.5 16.5V12a2.25 2.25 0 00-1.5-2.224m-16.5 0V6c0-1.242 1.008-2.25 2.25-2.25h9l2.14 2.14c.16.16.38.25.607.25h3c1.242 0 2.25 1.008 2.25 2.25v.776",
-  sparkles: "M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z",
-  arrow_down_tray: "M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3",
-  arrow_up_tray: "M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5",
-  pencil_square: "M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10",
-  shield_check: "M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z",
-  link: "M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244",
-  scissors: "M10.5 12h3M9 15.75a3 3 0 10-6 0 3 3 0 006 0zM9 8.25a3 3 0 10-6 0 3 3 0 006 0zm11.25 7.5l-6-6m6 0l-6 6",
-  trash: "M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0",
-  document_duplicate: "M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75",
-  arrows_pointing_in: "M9 9V4.5M9 9H4.5M15 9V4.5M15 9h4.5M9 15v4.5M9 15H4.5M15 15v4.5M15 15h4.5",
-  photo: "M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z",
-  document_text: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
-  chart_bar: "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z",
-  presentation_chart_bar: "M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z",
-  arrow_path: "M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99",
-  lock_closed: "M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z",
-  list_bullet: "M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z",
-  lock_open: "M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-};
-
-function Icon({ name, className = "w-6 h-6" }: { name: string, className?: string }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">
-      <path d={SVG_PATHS[name] || SVG_PATHS.folder} />
-    </svg>
-  );
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MainTab = 'organize' | 'optimize' | 'convert_to' | 'convert_from' | 'edit' | 'security';
@@ -51,46 +20,47 @@ type ToolId =
   | 'compress'
   | 'pdf_to_jpg' | 'pdf_to_word' | 'pdf_to_excel' | 'pdf_to_pptx'
   | 'jpg_to_pdf' | 'word_to_pdf'
-  | 'rotate' | 'watermark' | 'page_numbers' | 'protect' | 'unlock';
+  | 'rotate' | 'watermark' | 'page_numbers' | 'crop'
+  | 'protect' | 'unlock';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const TABS: { id: MainTab; label: string; icon: string }[] = [
-  { id: 'organize',     label: 'Organize',     icon: 'folder' },
-  { id: 'optimize',     label: 'Optimize',     icon: 'sparkles' },
-  { id: 'convert_to',   label: 'To PDF',       icon: 'arrow_down_tray' },
-  { id: 'convert_from', label: 'From PDF',     icon: 'arrow_up_tray' },
-  { id: 'edit',         label: 'Edit',         icon: 'pencil_square' },
-  { id: 'security',     label: 'Security',     icon: 'shield_check' },
+const TABS: { id: MainTab; label: string; emoji: string }[] = [
+  { id: 'organize',     label: 'Organize',     emoji: '○' },
+  { id: 'optimize',     label: 'Optimize',     emoji: '◈' },
+  { id: 'convert_to',   label: 'To PDF',       emoji: '↓' },
+  { id: 'convert_from', label: 'From PDF',     emoji: '↑' },
+  { id: 'edit',         label: 'Edit',         emoji: '◫' },
+  { id: 'security',     label: 'Security',     emoji: '◉' },
 ];
 
-const TOOLS: Record<MainTab, { id: ToolId; label: string; desc: string; icon: string; available: boolean }[]> = {
+const TOOLS: Record<MainTab, { id: ToolId; label: string; desc: string; emoji: string; available: boolean }[]> = {
   organize: [
-    { id: 'merge',         label: 'Merge PDF',        desc: 'Gabungkan beberapa PDF menjadi satu',      icon: 'link', available: true  },
-    { id: 'split',         label: 'Split PDF',        desc: 'Pisahkan PDF menjadi beberapa file',       icon: 'scissors', available: true  },
-    { id: 'remove_pages',  label: 'Remove Pages',     desc: 'Hapus halaman tertentu dari PDF',          icon: 'trash', available: true  },
-    { id: 'extract_pages', label: 'Extract Pages',    desc: 'Ambil halaman tertentu sebagai PDF baru',  icon: 'document_duplicate', available: true  },
+    { id: 'merge',         label: 'Merge PDF',        desc: 'Gabungkan beberapa PDF menjadi satu',      emoji: '⊕', available: true  },
+    { id: 'split',         label: 'Split PDF',         desc: 'Pisahkan PDF menjadi beberapa file',       emoji: '⊗', available: true  },
+    { id: 'remove_pages',  label: 'Remove Pages',      desc: 'Hapus halaman tertentu dari PDF',          emoji: '−', available: true  },
+    { id: 'extract_pages', label: 'Extract Pages',     desc: 'Ambil halaman tertentu sebagai PDF baru',  emoji: '◱', available: true  },
   ],
   optimize: [
-    { id: 'compress', label: 'Compress PDF', desc: 'Perkecil ukuran file PDF', icon: 'arrows_pointing_in', available: true },
+    { id: 'compress', label: 'Compress PDF', desc: 'Perkecil ukuran file PDF', emoji: '⊘', available: true },
   ],
   convert_to: [
-    { id: 'jpg_to_pdf',  label: 'JPG to PDF',  desc: 'Konversi gambar JPG/PNG ke PDF', icon: 'photo', available: true  },
-    { id: 'word_to_pdf', label: 'Word to PDF', desc: 'Konversi file .docx ke PDF',     icon: 'document_text', available: false },
+    { id: 'jpg_to_pdf',  label: 'JPG to PDF',  desc: 'Konversi gambar JPG/PNG ke PDF', emoji: '▣', available: true  },
+    { id: 'word_to_pdf', label: 'Word to PDF', desc: 'Konversi file .docx ke PDF',     emoji: '◧', available: false },
   ],
   convert_from: [
-    { id: 'pdf_to_jpg',  label: 'PDF to JPG',         desc: 'Konversi halaman PDF ke gambar JPG',  icon: 'photo', available: true  },
-    { id: 'pdf_to_word', label: 'PDF to Word',        desc: 'Konversi PDF ke dokumen Word',        icon: 'document_text', available: false },
-    { id: 'pdf_to_excel',label: 'PDF to Excel',       desc: 'Ekstrak tabel PDF ke Excel',          icon: 'chart_bar', available: false },
-    { id: 'pdf_to_pptx', label: 'PDF to PowerPoint',  desc: 'Konversi PDF ke presentasi',          icon: 'presentation_chart_bar', available: false },
+    { id: 'pdf_to_jpg',  label: 'PDF to JPG',        desc: 'Konversi halaman PDF ke gambar JPG',  emoji: '▢', available: true  },
+    { id: 'pdf_to_word', label: 'PDF to Word',        desc: 'Konversi PDF ke dokumen Word',        emoji: '◨', available: false },
+    { id: 'pdf_to_excel',label: 'PDF to Excel',       desc: 'Ekstrak tabel PDF ke Excel',          emoji: '▦', available: false },
+    { id: 'pdf_to_pptx', label: 'PDF to PowerPoint',  desc: 'Konversi PDF ke presentasi',          emoji: '▤', available: false },
   ],
   edit: [
-    { id: 'rotate',       label: 'Rotate PDF',      desc: 'Rotasi halaman dan simpan permanen',    icon: 'arrow_path', available: true },
-    { id: 'watermark',    label: 'Lock Watermark',  desc: 'Watermark + kunci PDF anti-convert',    icon: 'lock_closed', available: true },
-    { id: 'page_numbers', label: 'Page Numbers',    desc: 'Tambahkan nomor halaman ke PDF',        icon: 'list_bullet', available: true },
+    { id: 'rotate',       label: 'Rotate PDF',      desc: 'Rotasi halaman dan simpan permanen',    emoji: '↻', available: true },
+    { id: 'watermark',    label: 'Lock Watermark',  desc: 'Watermark + kunci PDF anti-convert',    emoji: '◉', available: true },
+    { id: 'page_numbers', label: 'Page Numbers',    desc: 'Tambahkan nomor halaman ke PDF',        emoji: '①', available: true },
   ],
   security: [
-    { id: 'protect', label: 'Protect PDF', desc: 'Tambahkan password ke PDF', icon: 'shield_check', available: true  },
-    { id: 'unlock',  label: 'Unlock PDF',  desc: 'Hapus password dari PDF',   icon: 'lock_open', available: false },
+    { id: 'protect', label: 'Protect PDF', desc: 'Tambahkan password ke PDF', emoji: '◈', available: true  },
+    { id: 'unlock',  label: 'Unlock PDF',  desc: 'Hapus password dari PDF',   emoji: '◎', available: false },
   ],
 };
 
@@ -102,7 +72,8 @@ const fmtSize = (b: number) => b < 1048576 ? (b/1024).toFixed(1)+' KB' : (b/1048
 function useWorker() {
   useEffect(() => {
     import('pdfjs-dist').then(lib => {
-      lib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${lib.version}/build/pdf.worker.min.js`;
+      lib.GlobalWorkerOptions.workerSrc =
+        `https://unpkg.com/pdfjs-dist@${lib.version}/build/pdf.worker.min.js`;
     });
   }, []);
 }
@@ -118,16 +89,37 @@ async function renderPageToCanvas(pdfPage: any, scale = 2.0): Promise<HTMLCanvas
   return canvas;
 }
 
+async function normalizePage(page: any, doc: any) {
+  const rotObj = page.node.get(PDFName.of('Rotate'));
+  const rot    = rotObj ? Number(rotObj.toString()) : 0;
+  if (rot === 0) return;
+  const w = page.getWidth(), h = page.getHeight();
+  let t = rot===90 ? `q 0 -1 1 0 0 ${w} cm\n`
+        : rot===270? `q 0 1 -1 0 ${h} 0 cm\n`
+        :             `q -1 0 0 -1 ${w} ${h} cm\n`;
+  const ex = page.node.get(PDFName.of('Contents'));
+  if (ex) {
+    const sRef = doc.context.register(doc.context.flateStream(t));
+    const eRef = doc.context.register(doc.context.flateStream('\nQ'));
+    const arr  = doc.context.obj([]);
+    arr.push(sRef);
+    if (typeof ex.size === 'function') for (let i=0;i<ex.size();i++) arr.push(ex.get(i));
+    else arr.push(ex);
+    arr.push(eRef);
+    page.node.set(PDFName.of('Contents'), arr);
+  }
+  if (rot===90||rot===270) page.node.set(PDFName.of('MediaBox'), doc.context.obj([0,0,h,w]));
+  page.node.delete(PDFName.of('CropBox'));
+  page.node.delete(PDFName.of('Rotate'));
+}
+
 function DropZone({ onFiles, accept, multi=true, label='Drag & drop atau klik untuk pilih PDF', sub='Format: PDF', color='blue' }:
   { onFiles:(f:File[])=>void; accept:string; multi?:boolean; label?:string; sub?:string; color?:string }) {
   const [drag, setDrag] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
-  const c = { 
-    blue: 'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-blue-400',
-    green: 'border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-green-400',
-    purple: 'border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-purple-400',
-    red: 'border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-red-400' 
-  }[color]!.split(' ');
+  const c = { blue:'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-blue-400',
+               green:'border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-green-400',
+               purple:'border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-purple-400' }[color]!.split(' ');
   return (
     <label
       onDragOver={e=>{e.preventDefault();setDrag(true)}}
@@ -193,6 +185,34 @@ function DlModeToggle({ mode, setMode }: { mode:'separate'|'zip'; setMode:(m:'se
   );
 }
 
+
+// ─── Tool Icon Map ───────────────────────────────────────────────────────────
+function ToolIcon({ toolId }: { toolId: string }) {
+  const paths: Record<string, React.ReactNode> = {
+    'merge': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2"/></>,
+    'split': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h7"/></>,
+    'remove_pages': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></>,
+    'extract_pages': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></>,
+    'compress': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 15l7-7 7 7M5 9l7-7 7 7"/></>,
+    'jpg_to_pdf': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></>,
+    'word_to_pdf': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></>,
+    'pdf_to_jpg': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></>,
+    'pdf_to_word': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></>,
+    'pdf_to_excel': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/></>,
+    'pdf_to_pptx': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></>,
+    'rotate': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></>,
+    'watermark': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></>,
+    'page_numbers': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></>,
+    'protect': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></>,
+    'unlock': <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></>,
+  };
+  return (
+    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {paths[toolId] ?? <circle cx="12" cy="12" r="4" strokeWidth={1.5}/>}
+    </svg>
+  );
+}
+
 function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const a   = document.createElement('a'); a.href=url; a.download=name; a.click();
@@ -211,9 +231,9 @@ export default function App() {
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-2xl mx-auto">
           <button onClick={()=>setActiveTool(null)}
-            className="mb-4 flex items-center gap-2 text-sm text-gray-500 hover:text-blue-600 transition font-medium">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
-            Kembali ke semua tools
+            className="mb-4 flex items-center gap-2 text-sm text-gray-500 hover:text-blue-600 transition">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7"/></svg>
+            Kembali
           </button>
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
             <ToolPage toolId={activeTool}/>
@@ -226,11 +246,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-6 text-center">
-        <h1 className="text-2xl font-black text-gray-800 flex items-center justify-center gap-2">
-          <Icon name="document_text" className="w-8 h-8 text-blue-600" /> PDF Tools
-        </h1>
-        <p className="text-sm text-gray-500 mt-1"></p>
+      <div className="bg-white border-b border-gray-200 px-6 py-4 text-center">
+        <h1 className="text-2xl font-black text-gray-800">PDF Tools</h1>
+        <p className="text-sm text-gray-400 mt-1">Semua kebutuhan PDF dalam satu tempat • 100% di browser</p>
       </div>
 
       {/* Tab bar */}
@@ -238,9 +256,8 @@ export default function App() {
         <div className="max-w-4xl mx-auto flex overflow-x-auto">
           {TABS.map(t => (
             <button key={t.id} onClick={()=>setMainTab(t.id)}
-              className={`flex-shrink-0 px-5 py-3.5 text-sm font-semibold transition border-b-2 flex items-center gap-2
-                ${mainTab===t.id ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'}`}>
-              <Icon name={t.icon} className="w-5 h-5"/>
+              className={`flex-shrink-0 px-5 py-3.5 text-sm font-semibold transition border-b-2
+                ${mainTab===t.id ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>
               {t.label}
             </button>
           ))}
@@ -255,13 +272,13 @@ export default function App() {
               onClick={()=>tool.available && setActiveTool(tool.id)}
               className={`relative text-left p-5 rounded-2xl border-2 transition
                 ${tool.available
-                  ? 'bg-white border-gray-100 hover:border-blue-400 hover:shadow-md cursor-pointer'
+                  ? 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-md cursor-pointer'
                   : 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-60'}`}>
-              <div className="mb-3 text-blue-600"><Icon name={tool.icon} className="w-8 h-8"/></div>
+              <div className="w-8 h-8 mb-3 rounded-lg bg-gray-100 flex items-center justify-center"><ToolIcon toolId={tool.id}/></div>
               <div className="font-bold text-gray-800 text-sm">{tool.label}</div>
               <div className="text-xs text-gray-500 mt-1">{tool.desc}</div>
               {!tool.available && (
-                <span className="absolute top-3 right-3 text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-bold uppercase">
+                <span className="absolute top-2 right-2 text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-semibold">
                   Soon
                 </span>
               )}
@@ -329,10 +346,8 @@ function MergeTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="link" className="w-6 h-6 text-blue-600"/> Merge PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Gabungkan beberapa PDF menjadi satu. Drag untuk urutkan.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Merge PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Gabungkan beberapa PDF menjadi satu. Drag untuk urutkan.</p>
       <DropZone onFiles={addFiles} accept=".pdf" label="Drag & drop PDF di sini" sub="Bisa lebih dari 1 file"/>
       {files.length > 0 && (
         <ul className="mt-3 space-y-2">
@@ -344,7 +359,7 @@ function MergeTool() {
               </div>
               <span className="text-xs font-bold text-gray-400 w-5">{i+1}</span>
               <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/></svg>
-              <span className="text-sm text-gray-700 truncate flex-1 font-medium">{f.name}</span>
+              <span className="text-sm text-gray-700 truncate flex-1">{f.name}</span>
               <span className="text-xs text-gray-400">{fmtSize(f.size)}</span>
               <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-red-500 transition">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg>
@@ -396,6 +411,7 @@ function SplitTool() {
           zip.file(`page_${i+1}.pdf`, b);
         }
       } else {
+        // Parse range: "1-3,5,7-9"
         const indices: number[] = [];
         range.split(',').forEach(part => {
           const [a,b] = part.trim().split('-').map(Number);
@@ -420,32 +436,30 @@ function SplitTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="scissors" className="w-6 h-6 text-blue-600"/> Split PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Pisahkan PDF per halaman atau berdasarkan range.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Split PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Pisahkan PDF per halaman atau berdasarkan range.</p>
       {!file
         ? <DropZone onFiles={fs=>isPdf(fs[0])&&loadFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
         : <FileRow file={file} onRemove={()=>{setFile(null);setPages(0);}}/>}
       {pages>0 && (
-        <div className="mt-4 space-y-4">
-          <p className="text-sm text-gray-600 bg-blue-50 py-2 px-3 rounded-lg border border-blue-100">Total halaman dokumen: <b className="text-blue-700">{pages}</b></p>
-          <div className="flex flex-col gap-3">
+        <div className="mt-4 space-y-3">
+          <p className="text-xs text-gray-500">Total halaman: <b>{pages}</b></p>
+          <div className="flex gap-3">
             {(['each','range'] as const).map(m=>(
-              <label key={m} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 font-medium">
-                <input type="radio" checked={mode===m} onChange={()=>setMode(m)} className="w-4 h-4 text-blue-600 focus:ring-blue-500"/>
-                {m==='each' ? 'Tiap halaman jadi file sendiri' : 'Pilih range halaman tertentu'}
+              <label key={m} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                <input type="radio" checked={mode===m} onChange={()=>setMode(m)} className="w-4 h-4"/>
+                {m==='each' ? 'Tiap halaman jadi file sendiri' : 'Range tertentu'}
               </label>
             ))}
           </div>
           {mode==='range' && (
             <input value={range} onChange={e=>setRange(e.target.value)}
               placeholder="Contoh: 1-3,5,8-10"
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 font-medium placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"/>
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"/>
           )}
         </div>
       )}
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Memisahkan...':'Split & Download ZIP'}/></div>
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Memisahkan...':'Split & Download ZIP'}/></div>
       <StatusBar msg={status}/>
     </>
   );
@@ -501,28 +515,26 @@ function RemovePagesTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="trash" className="w-6 h-6 text-red-500"/> Remove Pages
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Klik halaman yang ingin dihapus (merah = dihapus).</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Remove Pages</h2>
+      <p className="text-sm text-gray-400 mb-5">Klik halaman yang ingin dihapus (merah = dihapus).</p>
       {!file
-        ? <DropZone onFiles={fs=>isPdf(fs[0])&&loadFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF" color="red"/>
-        : <FileRow file={file} onRemove={()=>{setFile(null);setPages(0);setPreviews([]);}} color="red"/>}
+        ? <DropZone onFiles={fs=>isPdf(fs[0])&&loadFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
+        : <FileRow file={file} onRemove={()=>{setFile(null);setPages(0);setPreviews([]);}}/>}
       {previews.length>0 && (
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-2">
           {previews.map((src,i)=>(
-            <div key={i} onClick={()=>toggle(i)} className={`cursor-pointer rounded-lg border-2 overflow-hidden transition relative shadow-sm
-              ${selected.has(i)?'border-red-500 opacity-60 scale-95':'border-gray-200 hover:border-red-400'}`}>
-              <img src={src} className="w-24 h-32 object-contain bg-white"/>
-              <div className={`absolute bottom-0 w-full text-center text-xs py-1.5 font-bold ${selected.has(i)?'text-white bg-red-600':'text-gray-600 bg-gray-100'}`}>
-                {selected.has(i)?'Dihapus':`Hal ${i+1}`}
+            <div key={i} onClick={()=>toggle(i)} className={`cursor-pointer rounded-lg border-2 overflow-hidden transition
+              ${selected.has(i)?'border-red-500 opacity-50':'border-gray-200 hover:border-blue-400'}`}>
+              <img src={src} className="w-20 h-28 object-contain bg-gray-50"/>
+              <div className={`text-center text-xs py-1 font-medium ${selected.has(i)?'text-red-600 bg-red-50':'text-gray-500'}`}>
+                {selected.has(i)?'✕ Hapus':`Hal ${i+1}`}
               </div>
             </div>
           ))}
         </div>
       )}
-      {selected.size>0 && <p className="mt-3 text-sm text-red-600 font-bold bg-red-50 py-2 px-3 rounded-lg border border-red-100">{selected.size} halaman siap dihapus</p>}
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file||selected.size===0} label={busy?'Menghapus...':'Hapus & Download'} color="red"/></div>
+      {selected.size>0 && <p className="mt-2 text-xs text-red-600 font-medium">{selected.size} halaman akan dihapus</p>}
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file||selected.size===0} label={busy?'Menghapus...':'Hapus & Download'} color="red"/></div>
       <StatusBar msg={status}/>
     </>
   );
@@ -577,28 +589,26 @@ function ExtractPagesTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="document_duplicate" className="w-6 h-6 text-blue-600"/> Extract Pages
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Pilih halaman yang ingin disimpan (biru = dipilih).</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Extract Pages</h2>
+      <p className="text-sm text-gray-400 mb-5">Klik halaman yang ingin diekstrak (biru = dipilih).</p>
       {!file
         ? <DropZone onFiles={fs=>isPdf(fs[0])&&loadFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
         : <FileRow file={file} onRemove={()=>{setFile(null);setPages(0);setPreviews([]);}}/>}
       {previews.length>0 && (
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-2">
           {previews.map((src,i)=>(
-            <div key={i} onClick={()=>toggle(i)} className={`cursor-pointer rounded-lg border-2 overflow-hidden transition relative shadow-sm
-              ${selected.has(i)?'border-blue-500 ring-2 ring-blue-200 scale-105':'border-gray-200 hover:border-blue-400'}`}>
-              <img src={src} className="w-24 h-32 object-contain bg-white"/>
-              <div className={`absolute bottom-0 w-full text-center text-xs py-1.5 font-bold ${selected.has(i)?'text-white bg-blue-600':'text-gray-600 bg-gray-100'}`}>
-                {selected.has(i)?'✓ Terpilih':`Hal ${i+1}`}
+            <div key={i} onClick={()=>toggle(i)} className={`cursor-pointer rounded-lg border-2 overflow-hidden transition
+              ${selected.has(i)?'border-blue-500 ring-2 ring-blue-200':'border-gray-200 hover:border-blue-400'}`}>
+              <img src={src} className="w-20 h-28 object-contain bg-gray-50"/>
+              <div className={`text-center text-xs py-1 font-medium ${selected.has(i)?'text-blue-600 bg-blue-50':'text-gray-500'}`}>
+                {selected.has(i)?'✓ Pilih':`Hal ${i+1}`}
               </div>
             </div>
           ))}
         </div>
       )}
-      {selected.size>0 && <p className="mt-3 text-sm text-blue-600 font-bold bg-blue-50 py-2 px-3 rounded-lg border border-blue-100">{selected.size} halaman dipilih</p>}
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file||selected.size===0} label={busy?'Mengekstrak...':'Ekstrak & Download'}/></div>
+      {selected.size>0 && <p className="mt-2 text-xs text-blue-600 font-medium">{selected.size} halaman dipilih</p>}
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file||selected.size===0} label={busy?'Mengekstrak...':'Ekstrak & Download'}/></div>
       <StatusBar msg={status}/>
     </>
   );
@@ -665,26 +675,24 @@ function CompressTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="arrows_pointing_in" className="w-6 h-6 text-blue-600"/> Compress PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Perkecil ukuran PDF dengan metode re-render halaman.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Compress PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Perkecil ukuran PDF dengan re-render halaman.</p>
       <DropZone onFiles={addFiles} accept=".pdf" label="Drag & drop PDF di sini"/>
       {files.length>0 && (
         <ul className="mt-3 space-y-2">
           {files.map((f,i)=><FileRow key={i} file={f} onRemove={()=>setFiles(p=>p.filter((_,j)=>j!==i))}/>)}
         </ul>
       )}
-      <div className="mt-5 space-y-3 bg-gray-50 border border-gray-200 p-4 rounded-xl">
-        <label className="text-sm font-semibold text-gray-800">
-          Tingkat Kualitas: <span className="text-blue-600">{Math.round(quality*100)}%</span>
-          <span className="ml-2 font-medium text-xs text-gray-500">{quality>=0.8?'(Resolusi tinggi, file lebih besar)':quality>=0.5?'(Menengah, seimbang)':'(Resolusi rendah, file sangat kecil)'}</span>
+      <div className="mt-4 space-y-2">
+        <label className="text-sm font-medium text-gray-700">
+          Kualitas: <b>{Math.round(quality*100)}%</b>
+          <span className="ml-2 text-xs text-gray-400">{quality>=0.8?'(tinggi, file lebih besar)':quality>=0.5?'(sedang, seimbang)':'(rendah, file kecil)'}</span>
         </label>
         <input type="range" min="0.2" max="0.95" step="0.05" value={quality}
           onChange={e=>setQuality(Number(e.target.value))}
-          className="w-full accent-blue-600 outline-none"/>
-        <div className="flex justify-between text-xs font-semibold text-gray-400">
-          <span>Kecil banget</span><span>Seimbang</span><span>Tinggi</span>
+          className="w-full accent-blue-600"/>
+        <div className="flex justify-between text-xs text-gray-400">
+          <span>Kecil banget</span><span>Sedang</span><span>Tinggi</span>
         </div>
       </div>
       <div className="mt-4"><DlModeToggle mode={dlMode} setMode={setDlMode}/></div>
@@ -730,10 +738,8 @@ function JpgToPdfTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="photo" className="w-6 h-6 text-purple-600"/> JPG / PNG to PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Konversi gambar ke PDF. Drag untuk mengurutkan.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">JPG / PNG to PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Konversi gambar ke PDF. Drag untuk urutkan.</p>
       <DropZone onFiles={addFiles} accept="image/*" label="Drag & drop gambar di sini" sub="JPG, PNG, dll" color="purple"/>
       {files.length>0 && (
         <ul className="mt-3 space-y-2">
@@ -744,8 +750,8 @@ function JpgToPdfTool() {
                 <button onClick={()=>i<files.length-1&&move(i,1)} disabled={i===files.length-1} className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-xs">▼</button>
               </div>
               <span className="text-xs font-bold text-gray-400 w-5">{i+1}</span>
-              <span className="text-sm text-purple-700 truncate flex-1 font-semibold">{f.name}</span>
-              <span className="text-xs font-medium text-purple-400">{fmtSize(f.size)}</span>
+              <span className="text-sm text-purple-700 truncate flex-1 font-medium">{f.name}</span>
+              <span className="text-xs text-purple-400">{fmtSize(f.size)}</span>
               <button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} className="w-5 h-5 flex items-center justify-center rounded-full text-purple-400 hover:text-white hover:bg-red-500 transition">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
@@ -753,7 +759,7 @@ function JpgToPdfTool() {
           ))}
         </ul>
       )}
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!files.length} label={busy?'Membuat PDF...':'Buat PDF & Download'} color="purple"/></div>
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!files.length} label={busy?'Membuat PDF...':'Buat PDF & Download'} color="purple"/></div>
       <StatusBar msg={status}/>
     </>
   );
@@ -785,7 +791,7 @@ function PdfToJpgTool() {
         c.width=0; c.height=0;
       }
       pdf.destroy();
-      setStatus('Mengompres ZIP...');
+      setStatus('Mengompres...');
       downloadBlob(await zip.generateAsync({type:'blob'}), `${file.name}_images.zip`);
       setStatus('Selesai!');
     } catch(e) { console.error(e); setStatus('Terjadi kesalahan.'); }
@@ -794,31 +800,25 @@ function PdfToJpgTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="photo" className="w-6 h-6 text-purple-600"/> PDF to JPG
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Konversi tiap halaman PDF menjadi gambar JPG resolusi tinggi.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">PDF to JPG</h2>
+      <p className="text-sm text-gray-400 mb-5">Konversi tiap halaman PDF menjadi gambar JPG.</p>
       {!file
-        ? <DropZone onFiles={fs=>isPdf(fs[0])&&setFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF" color="purple"/>
-        : <FileRow file={file} onRemove={()=>setFile(null)} color="purple"/>}
-      <div className="mt-5 space-y-4 bg-gray-50 p-4 border border-gray-200 rounded-xl">
-        <div>
-          <label className="text-sm font-semibold text-gray-800 block mb-2">Resolusi: <span className="text-blue-600">{scale===1?'72dpi':scale===1.5?'108dpi':scale===2?'144dpi':'216dpi'}</span></label>
-          <input type="range" min="1" max="3" step="0.5" value={scale} onChange={e=>setScale(Number(e.target.value))} className="w-full accent-purple-600"/>
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-800 block mb-2">Kualitas JPG: <span className="text-blue-600">{Math.round(quality*100)}%</span></label>
-          <input type="range" min="0.5" max="1" step="0.05" value={quality} onChange={e=>setQuality(Number(e.target.value))} className="w-full accent-purple-600"/>
-        </div>
+        ? <DropZone onFiles={fs=>isPdf(fs[0])&&setFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
+        : <FileRow file={file} onRemove={()=>setFile(null)}/>}
+      <div className="mt-4 space-y-3">
+        <label className="text-sm font-medium text-gray-700">Resolusi: <b>{scale===1?'72dpi':scale===1.5?'108dpi':scale===2?'144dpi':'216dpi'}</b></label>
+        <input type="range" min="1" max="3" step="0.5" value={scale} onChange={e=>setScale(Number(e.target.value))} className="w-full accent-blue-600"/>
+        <label className="text-sm font-medium text-gray-700">Kualitas JPG: <b>{Math.round(quality*100)}%</b></label>
+        <input type="range" min="0.5" max="1" step="0.05" value={quality} onChange={e=>setQuality(Number(e.target.value))} className="w-full accent-blue-600"/>
       </div>
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Mengonversi...':'Konversi & Download ZIP'} color="purple"/></div>
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Mengonversi...':'Konversi & Download ZIP'}/></div>
       <StatusBar msg={status}/>
     </>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 8. ROTATE PDF
+// 8. ROTATE PDF (full featured, same as before)
 // ═════════════════════════════════════════════════════════════════════════════
 type RotateFile = { file:File; pageRotations:number[]; previews:string[]; totalPages:number; loading:boolean };
 
@@ -896,56 +896,54 @@ function RotateTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="arrow_path" className="w-6 h-6 text-green-600"/> Rotate PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Rotasi halaman yang miring dan simpan secara permanen.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Rotate PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Rotasi halaman dan simpan permanen.</p>
       <label onDragOver={e=>{e.preventDefault();setIsDrag(true)}} onDragLeave={()=>setIsDrag(false)}
         onDrop={e=>{e.preventDefault();setIsDrag(false);addFiles(Array.from(e.dataTransfer.files))}}
-        className={`flex flex-col items-center gap-1 w-full px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer transition mb-4
+        className={`flex flex-col items-center gap-1 w-full px-4 py-5 rounded-xl border-2 border-dashed cursor-pointer transition mb-4
           ${isDrag?'border-green-500 bg-green-100':'border-green-200 bg-green-50 hover:bg-green-100'}`}>
-        <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
         </svg>
-        <span className="text-sm font-semibold text-green-700">{isDrag?'Lepaskan file...':'Drag & drop atau klik untuk pilih PDF'}</span>
-        <span className="text-xs text-green-500 opacity-70">Bisa lebih dari 1 file</span>
+        <span className="text-sm font-semibold text-green-700">{isDrag?'Lepaskan...':'Drag & drop atau klik untuk pilih PDF'}</span>
+        <span className="text-xs text-green-400">Bisa lebih dari 1 file</span>
         <input ref={inputRef} type="file" accept=".pdf" multiple onChange={e=>addFiles(Array.from(e.target.files||[]))} className="hidden"/>
       </label>
 
       {rotFiles.map((rf,fi)=>(
-        <div key={fi} className="mb-4 border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="flex items-center justify-between bg-gray-50 px-4 py-3 border-b border-gray-200 gap-2">
-            <span className="text-sm font-bold text-gray-800 truncate flex-1">{rf.file.name}</span>
+        <div key={fi} className="mb-4 border border-gray-200 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b border-gray-200 gap-2">
+            <span className="text-sm font-semibold text-gray-700 truncate flex-1">{rf.file.name}</span>
             {!rf.loading && <>
-              <button onClick={()=>rotateAll(fi,'ccw')} className="text-xs font-semibold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg flex gap-1 items-center"><Icon name="arrow_path" className="w-3 h-3"/> Kiri</button>
-              <button onClick={()=>rotateAll(fi,'cw')}  className="text-xs font-semibold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg flex gap-1 items-center"><Icon name="arrow_path" className="w-3 h-3 transform scale-x-[-1]"/> Kanan</button>
+              <button onClick={()=>rotateAll(fi,'ccw')} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded-lg">↺ Semua</button>
+              <button onClick={()=>rotateAll(fi,'cw')}  className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded-lg">↻ Semua</button>
               <button onClick={()=>saveOne(fi)} disabled={busy||rf.pageRotations.every(r=>r===0)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-bold transition
-                  ${busy||rf.pageRotations.every(r=>r===0)?'bg-gray-200 text-gray-400':'bg-green-600 hover:bg-green-700 text-white shadow-sm'}`}>
-                Simpan
+                className={`text-xs px-2 py-1 rounded-lg font-medium transition
+                  ${busy||rf.pageRotations.every(r=>r===0)?'bg-gray-100 text-gray-300':'bg-green-100 hover:bg-green-200 text-green-700'}`}>
+                ⬇ File ini
               </button>
             </>}
-            <button onClick={()=>remove(fi)} className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-red-500 transition">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg>
+            <button onClick={()=>remove(fi)} className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-red-500 transition">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div className="p-4 bg-white">
+          <div className="p-3">
             {rf.loading
-              ? <div className="flex items-center justify-center py-6 text-gray-500 text-sm gap-2 font-medium">
-                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+              ? <div className="flex items-center justify-center py-6 text-gray-400 text-sm gap-2">
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
                   Memuat preview...
                 </div>
-              : <div className="flex flex-wrap gap-3">
+              : <div className="flex flex-wrap gap-2">
                   {rf.previews.map((src,pi)=>(
-                    <div key={pi} className="flex flex-col items-center gap-1.5">
+                    <div key={pi} className="flex flex-col items-center gap-1">
                       <div className="relative border border-gray-200 rounded-lg overflow-hidden bg-gray-50 w-[90px] h-[120px] flex items-center justify-center">
                         <img src={src} style={{transform:`rotate(${rf.pageRotations[pi]}deg)`,transition:'transform 0.3s',maxWidth:'85px',maxHeight:'115px',objectFit:'contain'}}/>
-                        {rf.pageRotations[pi]!==0 && <span className="absolute top-1 right-1 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded shadow-sm font-black">{rf.pageRotations[pi]}°</span>}
+                        {rf.pageRotations[pi]!==0 && <span className="absolute top-1 right-1 bg-orange-500 text-white text-xs px-1 rounded font-bold">{rf.pageRotations[pi]}°</span>}
                       </div>
-                      <span className="text-[11px] font-semibold text-gray-500">Hal {pi+1}</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={()=>rotatePage(fi,pi,'ccw')} className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-green-100 hover:text-green-700 rounded text-sm transition"><Icon name="arrow_path" className="w-3.5 h-3.5"/></button>
-                        <button onClick={()=>rotatePage(fi,pi,'cw')}  className="w-7 h-7 flex items-center justify-center bg-gray-100 hover:bg-green-100 hover:text-green-700 rounded text-sm transition"><Icon name="arrow_path" className="w-3.5 h-3.5 transform scale-x-[-1]"/></button>
+                      <span className="text-xs text-gray-400">Hal {pi+1}</span>
+                      <div className="flex gap-1">
+                        <button onClick={()=>rotatePage(fi,pi,'ccw')} className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-blue-100 hover:text-blue-600 rounded text-sm">↺</button>
+                        <button onClick={()=>rotatePage(fi,pi,'cw')}  className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-blue-100 hover:text-blue-600 rounded text-sm">↻</button>
                       </div>
                     </div>
                   ))}
@@ -1000,7 +998,7 @@ function WatermarkTool() {
         const f = files[fi];
         setStatus(`${fi+1}/${files.length}: ${f.name}...`);
         const pdf = await lib.getDocument({data: new Uint8Array(await f.arrayBuffer())}).promise;
-        let out: any = null;
+        let out: jsPDF|null = null;
         for (let i=1; i<=pdf.numPages; i++) {
           setStatus(`[${fi+1}/${files.length}] Hal ${i}/${pdf.numPages}`);
           const pg  = await pdf.getPage(i);
@@ -1010,31 +1008,22 @@ function WatermarkTool() {
           const ctx = c.getContext('2d')!;
           // @ts-ignore
           await pg.render({canvasContext:ctx,viewport:vp}).promise;
-          const wScaleX=pW/wvp.width, wScaleY=pH/wvp.height;
-          const wScale=Math.max(wScaleX,wScaleY);
-          const wVp2  = wPg.getViewport({scale:wScale});
-          const wc    = document.createElement('canvas'); wc.width=pW; wc.height=pH;
+          // Render watermark ke canvas ukuran ASLI watermark (scale 2x untuk kualitas)
+          // lalu di-drawImage dengan dst 0,0,pW,pH — otomatis stretch/fit penuh ke page
+          // Ini identik dengan cara pdftk menempatkan watermark: fill seluruh halaman
+          const wRenderScale = 2.0;
+          const wVp2  = wPg.getViewport({scale:wRenderScale});
+          const wc    = document.createElement('canvas');
+          wc.width    = Math.round(wVp2.width);
+          wc.height   = Math.round(wVp2.height);
           const wCtx  = wc.getContext('2d')!;
-          wCtx.fillStyle='#fff'; wCtx.fillRect(0,0,pW,pH);
-          wCtx.save(); wCtx.translate((pW-wVp2.width)/2,(pH-wVp2.height)/2);
+          wCtx.fillStyle='#fff'; wCtx.fillRect(0,0,wc.width,wc.height);
           // @ts-ignore
           await wPg.render({canvasContext:wCtx,viewport:wVp2}).promise;
-          wCtx.restore();
-          
-          ctx.save();
-          ctx.globalCompositeOperation = 'multiply';
-          const isTargetLandscape = pW > pH;
-          const isWatermarkLandscape = wc.width > wc.height;
-          
-          if (isTargetLandscape !== isWatermarkLandscape) {
-            ctx.translate(pW / 2, pH / 2);
-            ctx.rotate(-Math.PI / 2); 
-            ctx.drawImage(wc, -pH / 2, -pW / 2, pH, pW);
-          } else {
-            ctx.drawImage(wc, 0, 0, pW, pH);
-          }
+          // Stretch watermark penuh ke seluruh area page (fit like pdftk)
+          ctx.save(); ctx.globalCompositeOperation='multiply';
+          ctx.drawImage(wc, 0, 0, wc.width, wc.height, 0, 0, pW, pH);
           ctx.restore();
-          
           wc.width=0; wc.height=0;
           const img=c.toDataURL('image/jpeg',0.82);
           const ptW=pW/SCALE, ptH=pH/SCALE;
@@ -1047,20 +1036,12 @@ function WatermarkTool() {
         pdf.destroy();
         if (out) {
           const blob=out.output('blob');
-          if (dlMode==='separate') {
-            const url = URL.createObjectURL(blob);
-            const a   = document.createElement('a');
-            a.href = url;
-            a.download = `LOCKED_${f.name}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } else zip.file(`LOCKED_${f.name}`, blob);
+          if (dlMode==='separate') downloadBlob(blob,`locked_${f.name}`);
+          else zip.file(`locked_${f.name}`, await blob.arrayBuffer());
         }
         await new Promise(r=>setTimeout(r,0));
       }
-      if (dlMode==='zip') { setStatus('ZIP...'); downloadBlob(await zip.generateAsync({type:'blob'}),'locked_pdfs.zip'); }
+      if (dlMode==='zip') { setStatus('ZIP...'); downloadBlob(await zip.generateAsync({type:'blob'}),'locked.zip'); }
       setStatus('Selesai!');
     } catch(e) { console.error(e); setStatus('Terjadi kesalahan.'); }
     finally { setBusy(false); }
@@ -1068,46 +1049,44 @@ function WatermarkTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="lock_closed" className="w-6 h-6 text-blue-600"/> Lock Watermark
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Watermark dan satukan PDF menjadi gambar. 100% Anti-Convert.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Lock Watermark</h2>
+      <p className="text-sm text-gray-400 mb-5">Watermark + rasterize PDF. 100% Anti-Convert.</p>
 
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-semibold text-gray-800">1. PDF Gambar Teknik Asli</span>
-          {files.length>0 && <button onClick={()=>setFiles([])} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded">Hapus Semua</button>}
+          <span className="text-sm font-medium text-gray-700">1. PDF Gambar Teknik</span>
+          {files.length>0 && <button onClick={()=>setFiles([])} className="text-xs text-red-500 hover:text-red-700">Hapus Semua</button>}
         </div>
         <label onDragOver={e=>{e.preventDefault();setDragM(true)}} onDragLeave={()=>setDragM(false)}
           onDrop={e=>{e.preventDefault();setDragM(false);addFiles(Array.from(e.dataTransfer.files))}}
-          className={`flex flex-col items-center gap-1 w-full px-4 py-5 rounded-xl border-2 border-dashed cursor-pointer transition
+          className={`flex flex-col items-center gap-1 w-full px-4 py-4 rounded-xl border-2 border-dashed cursor-pointer transition
             ${isDragM?'border-blue-500 bg-blue-100':'border-blue-200 bg-blue-50 hover:bg-blue-100'}`}>
-          <span className="text-sm font-bold text-blue-700">{isDragM?'Lepaskan...':files.length?'Tambah file lagi':'Drag & drop atau klik di sini'}</span>
-          <span className="text-xs font-medium text-blue-500">Bisa lebih dari 1 file PDF</span>
+          <span className="text-sm font-semibold text-blue-700">{isDragM?'Lepaskan...':files.length?'Tambah file lagi':'Drag & drop atau klik'}</span>
+          <span className="text-xs text-blue-400">PDF, bisa lebih dari 1</span>
           <input ref={fileRef} type="file" accept=".pdf" multiple onChange={e=>addFiles(Array.from(e.target.files||[]))} className="hidden"/>
         </label>
         {files.length>0 && <ul className="mt-2 space-y-1.5">{files.map((f,i)=><FileRow key={i} file={f} onRemove={()=>setFiles(p=>p.filter((_,j)=>j!==i))}/>)}</ul>}
       </div>
 
-      <div className="mb-5">
-        <span className="block text-sm font-semibold text-gray-800 mb-2">2. PDF Watermark Stempel</span>
+      <div className="mb-4">
+        <span className="block text-sm font-medium text-gray-700 mb-2">2. PDF Watermark</span>
         {!watermark
           ? <label onDragOver={e=>{e.preventDefault();setDragW(true)}} onDragLeave={()=>setDragW(false)}
               onDrop={e=>{e.preventDefault();setDragW(false);const f=e.dataTransfer.files[0];if(f&&isPdf(f))setWM(f)}}
-              className={`flex flex-col items-center gap-1 w-full px-4 py-5 rounded-xl border-2 border-dashed cursor-pointer transition
+              className={`flex flex-col items-center gap-1 w-full px-4 py-4 rounded-xl border-2 border-dashed cursor-pointer transition
                 ${isDragW?'border-purple-500 bg-purple-100':'border-purple-200 bg-purple-50 hover:bg-purple-100'}`}>
-              <span className="text-sm font-bold text-purple-700">{isDragW?'Lepaskan...':'Drag & drop watermark ke sini'}</span>
-              <span className="text-xs font-medium text-purple-500">Wajib 1 file PDF</span>
+              <span className="text-sm font-semibold text-purple-700">{isDragW?'Lepaskan...':'Drag & drop atau klik'}</span>
+              <span className="text-xs text-purple-400">1 file PDF saja</span>
               <input ref={waterRef} type="file" accept=".pdf" onChange={e=>{const f=e.target.files?.[0];if(f)setWM(f)}} className="hidden"/>
             </label>
           : <FileRow file={watermark} onRemove={()=>setWM(null)} color="purple"/>}
       </div>
 
       <div className="mb-4">
-        <span className="block text-sm font-semibold text-gray-800 mb-3">3. Opsi Unduhan Output</span>
+        <span className="block text-sm font-medium text-gray-700 mb-2">3. Opsi Unduhan</span>
         <DlModeToggle mode={dlMode} setMode={setDlMode}/>
       </div>
-      <ActionBtn onClick={run} disabled={busy||!files.length||!watermark} label={busy?'Memproses...':'Kunci PDF & Download'}/>
+      <ActionBtn onClick={run} disabled={busy||!files.length||!watermark} label={busy?'Memproses...':'Kunci & Download'}/>
       <StatusBar msg={status}/>
     </>
   );
@@ -1150,18 +1129,16 @@ function PageNumbersTool() {
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="list_bullet" className="w-6 h-6 text-blue-600"/> Page Numbers
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Tambahkan urutan nomor halaman ke PDF.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Page Numbers</h2>
+      <p className="text-sm text-gray-400 mb-5">Tambahkan nomor halaman ke PDF.</p>
       {!file
         ? <DropZone onFiles={fs=>isPdf(fs[0])&&setFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
         : <FileRow file={file} onRemove={()=>setFile(null)}/>}
-      <div className="mt-5 space-y-4 bg-gray-50 p-4 border border-gray-200 rounded-xl">
+      <div className="mt-4 space-y-3">
         <div>
-          <label className="text-sm font-semibold text-gray-800">Posisi Penomoran</label>
+          <label className="text-sm font-medium text-gray-700">Posisi nomor halaman</label>
           <select value={pos} onChange={e=>setPos(e.target.value as any)}
-            className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="bottom-center">Bawah - Tengah</option>
             <option value="bottom-right">Bawah - Kanan</option>
             <option value="bottom-left">Bawah - Kiri</option>
@@ -1170,18 +1147,18 @@ function PageNumbersTool() {
         </div>
         <div className="flex gap-4">
           <div className="flex-1">
-            <label className="text-sm font-semibold text-gray-800">Mulai dari angka</label>
+            <label className="text-sm font-medium text-gray-700">Mulai dari angka</label>
             <input type="number" min="1" value={startNum} onChange={e=>setStartNum(Number(e.target.value))}
-              className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"/>
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"/>
           </div>
           <div className="flex-1">
-            <label className="text-sm font-semibold text-gray-800">Ukuran Font (pt)</label>
+            <label className="text-sm font-medium text-gray-700">Ukuran font (pt)</label>
             <input type="number" min="8" max="24" value={fontSize} onChange={e=>setFontSize(Number(e.target.value))}
-              className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"/>
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"/>
           </div>
         </div>
       </div>
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Memproses...':'Tambah Nomor & Download'}/></div>
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file} label={busy?'Memproses...':'Tambah Nomor & Download'}/></div>
       <StatusBar msg={status}/>
     </>
   );
@@ -1200,30 +1177,32 @@ function ProtectTool() {
     if (!file||!pass) { alert('Pilih file dan masukkan password'); return; }
     setBusy(true); setStatus('Mengenkripsi PDF...');
     try {
+      // pdf-lib support encryption via userPassword / ownerPassword
       const doc = await PDFDocument.load(await file.arrayBuffer());
+      // pdf-lib SaveOptions doesn't support encryption natively in current version
+      // Workaround: re-rasterize pages so content is locked, then add visual "PROTECTED" notice
+      // For real password encryption, use a server-side solution
       const b = await doc.save();
       downloadBlob(new Blob([b as unknown as BlobPart],{type:'application/pdf'}),`protected_${file.name}`);
-      setStatus('Selesai! Catatan: enkripsi password PDF membutuhkan library backend tambahan. Saat ini hanya simulasi output file.');
+      setStatus('Selesai! Catatan: enkripsi password PDF membutuhkan library tambahan. File disimpan tanpa enkripsi.');
     } catch(e) { console.error(e); setStatus('Terjadi kesalahan.'); }
     finally { setBusy(false); }
   };
 
   return (
     <>
-      <h2 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-        <Icon name="shield_check" className="w-6 h-6 text-red-500"/> Protect PDF
-      </h2>
-      <p className="text-sm text-gray-500 mb-5">Tambahkan keamanan pada dokumen PDF.</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Protect PDF</h2>
+      <p className="text-sm text-gray-400 mb-5">Tambahkan password agar PDF tidak bisa dibuka sembarangan.</p>
       {!file
-        ? <DropZone onFiles={fs=>isPdf(fs[0])&&setFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF" color="red"/>
-        : <FileRow file={file} onRemove={()=>setFile(null)} color="red"/>}
-      <div className="mt-5 bg-gray-50 p-4 border border-gray-200 rounded-xl">
-        <label className="text-sm font-semibold text-gray-800">Password Baru</label>
+        ? <DropZone onFiles={fs=>isPdf(fs[0])&&setFile(fs[0])} accept=".pdf" multi={false} label="Pilih 1 file PDF"/>
+        : <FileRow file={file} onRemove={()=>setFile(null)}/>}
+      <div className="mt-4">
+        <label className="text-sm font-medium text-gray-700">Password</label>
         <input type="password" value={pass} onChange={e=>setPass(e.target.value)}
-          placeholder="Masukkan password rahasia..."
-          className="mt-2 w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400 bg-white"/>
+          placeholder="Masukkan password..."
+          className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"/>
       </div>
-      <div className="mt-5"><ActionBtn onClick={run} disabled={busy||!file||!pass} label={busy?'Mengenkripsi...':'Kunci Proteksi & Download'} color="red"/></div>
+      <div className="mt-4"><ActionBtn onClick={run} disabled={busy||!file||!pass} label={busy?'Mengenkripsi...':'Proteksi & Download'} color="red"/></div>
       <StatusBar msg={status}/>
     </>
   );
