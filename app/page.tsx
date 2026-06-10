@@ -1008,11 +1008,11 @@ function WatermarkTool() {
           const ctx = c.getContext('2d')!;
           // @ts-ignore
           await pg.render({canvasContext:ctx,viewport:vp}).promise;
-          // Render watermark ke canvas ukuran ASLI watermark (scale 2x untuk kualitas)
-          // lalu di-drawImage dengan dst 0,0,pW,pH — otomatis stretch/fit penuh ke page
-          // Ini identik dengan cara pdftk menempatkan watermark: fill seluruh halaman
-          const wRenderScale = 2.0;
-          const wVp2  = wPg.getViewport({scale:wRenderScale});
+          // Render watermark di ukuran aslinya (scale = ukuran page / ukuran watermark)
+          // Pakai CONTAIN: scale seragam sehingga watermark muat di dalam page
+          // tanpa distorsi — persis perilaku pdftk background/stamp
+          const wContainScale = Math.min(pW / wvp.width, pH / wvp.height);
+          const wVp2  = wPg.getViewport({scale: wContainScale});
           const wc    = document.createElement('canvas');
           wc.width    = Math.round(wVp2.width);
           wc.height   = Math.round(wVp2.height);
@@ -1020,9 +1020,11 @@ function WatermarkTool() {
           wCtx.fillStyle='#fff'; wCtx.fillRect(0,0,wc.width,wc.height);
           // @ts-ignore
           await wPg.render({canvasContext:wCtx,viewport:wVp2}).promise;
-          // Stretch watermark penuh ke seluruh area page (fit like pdftk)
+          // Tempatkan watermark di tengah page (contain, tidak stretch)
+          const wDstX = (pW - wc.width)  / 2;
+          const wDstY = (pH - wc.height) / 2;
           ctx.save(); ctx.globalCompositeOperation='multiply';
-          ctx.drawImage(wc, 0, 0, wc.width, wc.height, 0, 0, pW, pH);
+          ctx.drawImage(wc, wDstX, wDstY);
           ctx.restore();
           wc.width=0; wc.height=0;
           const img=c.toDataURL('image/jpeg',0.82);
